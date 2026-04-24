@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../services/notification_service.dart';
+import '../services/app_events.dart';
 import 'package:provider/provider.dart';
 import '../services/mock_data_service.dart';
 import '../services/location_service.dart';
@@ -927,7 +928,6 @@ class _DemoControlsSheetState extends State<DemoControlsSheet> {
     await Future.delayed(const Duration(milliseconds: 300));
     if (!mounted) return;
 
-    // Initialize mock data for the shadow policy showcase
     final mockSvc = context.read<MockDataService>();
     mockSvc.missedAmount = 680;
     mockSvc.shadowEvents = [
@@ -943,7 +943,36 @@ class _DemoControlsSheetState extends State<DemoControlsSheet> {
           claimableAmount: 360),
     ];
     mockSvc.hasActivePolicy = false;
+    // Populate claims list with "what would have been paid" shadow entries
+    mockSvc.claims = [
+      ClaimModel(
+        id: 'CLM_MUTHU_001',
+        type: 'Rain Disruption (Missed)',
+        date: 'Oct 12, 2025',
+        amount: 320,
+        status: 'NOT_COVERED',
+        zone: 'Tambaram Dark Store Zone',
+        icon: 'rain',
+        grossAmount: 320,
+        immediateAmount: 0,
+        heldAmount: 0,
+      ),
+      ClaimModel(
+        id: 'CLM_MUTHU_002',
+        type: 'Platform Downtime (Missed)',
+        date: 'Oct 8, 2025',
+        amount: 360,
+        status: 'NOT_COVERED',
+        zone: 'Tambaram Dark Store Zone',
+        icon: 'app',
+        grossAmount: 360,
+        immediateAmount: 0,
+        heldAmount: 0,
+      ),
+    ];
     mockSvc.notifyListeners();
+    AppEvents.instance.claimUpdated();
+    AppEvents.instance.walletUpdated();
 
     if (mounted) {
       context.go('/dashboard');
@@ -974,7 +1003,7 @@ class _DemoControlsSheetState extends State<DemoControlsSheet> {
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
 
-    _showStep('Zero jitter override â†’ FPS score: 87 â†’ RED');
+    _showStep('Zero jitter override → FPS score: 87 → RED');
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
 
@@ -986,13 +1015,13 @@ class _DemoControlsSheetState extends State<DemoControlsSheet> {
     }
 
     _showSuccess(
-      'Claim FLAGGED â€” FPS 87 â†’ RED â†’ Human review queued.\n'
-      'Check Claims tab â€” status shows FLAGGED not APPROVED.\n'
-      'Only â‚¹200 provisional credit released.',
+      'Claim FLAGGED — FPS 87 → RED → Human review queued.\n'
+      'Check Claims tab — status shows FLAGGED not APPROVED.\n'
+      'Only ₹200 provisional credit released.',
     );
   }
 
-  // Santhosh â€” trust score + cashback
+  // Santhosh — trust score + cashback
   Future<void> _runSanthosh() async {
     _showStep('Loading 4 clean weeks history...');
     await Future.delayed(const Duration(seconds: 1));
@@ -1002,11 +1031,31 @@ class _DemoControlsSheetState extends State<DemoControlsSheet> {
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
 
-    _showStep('10% of â‚¹196 premiums = â‚¹19.60 cashback credited...');
+    _showStep('10% of ₹196 premiums = ₹19.60 cashback credited...');
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
 
-    context.read<MockDataService>().creditWalletForDemo(
+    final mockSvc = context.read<MockDataService>();
+
+    // Populate a clean claims history showing 4 claim-free weeks
+    // (no claims = cashback eligible)
+    mockSvc.claims = [
+      ClaimModel(
+        id: 'CLM_SANTHOSH_CASHBACK',
+        type: 'Trust Cashback (4-Week Streak)',
+        date: 'Today',
+        amount: 20,
+        status: 'APPROVED',
+        zone: 'Anna Nagar Dark Store Zone',
+        icon: 'cash',
+        grossAmount: 20,
+        immediateAmount: 20,
+        heldAmount: 0,
+      ),
+    ];
+    AppEvents.instance.claimUpdated();
+
+    mockSvc.creditWalletForDemo(
           amount: 20,
           title: 'Trust Cashback',
           subtitle: '4 clean weeks bonus',

@@ -10,6 +10,8 @@ from scipy.stats import norm
 
 MODEL_PATH = Path(__file__).parent.parent / "models" / "trained" / "prophet_chennai.pkl"
 MODELS_DIR = Path(__file__).parent.parent / "models" / "trained"
+
+
 def fetch_open_meteo_historical() -> pd.DataFrame:
     """
     Fetch 2018-2024 daily rainfall data for Chennai via Open-Meteo Historical Archive API.
@@ -22,17 +24,40 @@ def fetch_open_meteo_historical() -> pd.DataFrame:
         "daily=precipitation_sum&timezone=Asia/Kolkata"
     )
     
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    data = response.json()
-    
-    dates = data["daily"]["time"]
-    precip = data["daily"]["precipitation_sum"]
-    
-    df = pd.DataFrame({
-        "ds": pd.to_datetime(dates),
-        "y": precip
-    })
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        dates = data["daily"]["time"]
+        precip = data["daily"]["precipitation_sum"]
+        
+        df = pd.DataFrame({
+            "ds": pd.to_datetime(dates),
+            "y": precip
+        })
+    except requests.exceptions.RequestException as e:
+        print(f"[Prophet] Open-Meteo API failed: {e}. Using offline synthetic fallback data.")
+        # Offline fallback data: Generate dates from 2018 to 2024
+        dates = pd.date_range(start="2018-01-01", end="2024-12-31", freq="D")
+        
+        # Create a synthetic precipitation pattern (peaks during monsoon)
+        month = dates.month
+        # Monsoon base probability
+        is_monsoon = (month >= 6) & (month <= 12)
+        
+        # Generate random precipitation with higher chance/amount during monsoon
+        np.random.seed(42)
+        precip = np.where(
+            is_monsoon,
+            np.random.exponential(scale=5.0, size=len(dates)) * np.random.choice([0, 1], size=len(dates), p=[0.7, 0.3]),
+            np.random.exponential(scale=1.0, size=len(dates)) * np.random.choice([0, 1], size=len(dates), p=[0.95, 0.05])
+        )
+        
+        df = pd.DataFrame({
+            "ds": dates,
+            "y": precip
+        })
     
     # Fill any NaNs with 0
     df["y"] = df["y"].fillna(0)
@@ -40,16 +65,27 @@ def fetch_open_meteo_historical() -> pd.DataFrame:
     return df
 
 def add_regressors(df: pd.DataFrame) -> pd.DataFrame:
-    # 5 regressors required by the new Model 7 Blueprint
-    df["festival_multiplier"] = 1.0
-    df["precipitation_mm"]    = 0.0
-    df["temperature_c"]       = 32.0   # generic baseline
+    """Add all external regressors required by the trained Prophet model."""
+    # ── Static / approximated regressors ──────────────────────────────────
+    df["festival_multiplier"]   = 1.0
+    df["precipitation_mm"]      = 0.0
+    df["temperature_c"]         = 32.0   # generic baseline
     df["traffic_profile_index"] = 0.5
 
     dom = df["ds"].dt.day
-    # 1=corporate payday, 2=informal payday, 0=none
-    df["salary_week_flag"] = np.where((dom >= 1) & (dom <= 5), 1, 
-                              np.where((dom >= 7) & (dom <= 10), 2, 0))
+    # 1 = corporate payday (1–5), 2 = informal payday (7–10), 0 = none
+    df["salary_week_flag"] = np.where(
+        (dom >= 1) & (dom <= 5), 1,
+        np.where((dom >= 7) & (dom <= 10), 2, 0)
+    )
+
+    # ── FIX: regressors registered in train_model() but previously missing ─
+    # is_monsoon: June–September (months 6–9) — peak rainfall window
+    month = df["ds"].dt.month
+    df["is_monsoon"]       = ((month >= 6) & (month <= 9)).astype(int)
+    # is_cyclone_season: Oct–Dec — Bay of Bengal cyclone window
+    df["is_cyclone_season"] = ((month >= 10) & (month <= 12)).astype(int)
+
     return df
 
 def train_model():
@@ -135,6 +171,11 @@ def load_zone_model(zone_id: str):
     if adyar_path.exists():
         print(f"[Prophet] Zone '{zone_id}' not found ??? using Adyar fallback")
         return joblib.load(adyar_path)
+
+    chennai_path = MODELS_DIR / "prophet_chennai.pkl"
+    if chennai_path.exists():
+        print(f"[Prophet] Zone '{zone_id}' not found ??? using Chennai generic fallback")
+        return joblib.load(chennai_path)
 
     # Last resort ??? train fresh (slow, only on first cold start)
     print(f"[Prophet] No pkl found ??? training fresh model for '{zone_id}'")

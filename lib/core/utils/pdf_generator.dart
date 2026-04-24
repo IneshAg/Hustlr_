@@ -128,7 +128,7 @@ class PdfGenerator {
     if (kIsWeb) {
       await Printing.sharePdf(bytes: bytes, filename: fileName);
     } else {
-      await Printing.layoutPdf(onLayout: (_) => bytes, name: fileName);
+      await Printing.sharePdf(bytes: bytes, filename: fileName);
     }
   }
 
@@ -233,7 +233,7 @@ class PdfGenerator {
     if (kIsWeb) {
       await Printing.sharePdf(bytes: bytes, filename: fileName);
     } else {
-      await Printing.layoutPdf(onLayout: (_) => bytes, name: fileName);
+      await Printing.sharePdf(bytes: bytes, filename: fileName);
     }
   }
 

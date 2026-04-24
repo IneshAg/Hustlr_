@@ -1493,9 +1493,9 @@ void _processWithdrawal(BuildContext context, int amount, String upiId, {bool ba
     if (!context.mounted) return;
     Navigator.of(context, rootNavigator: true).pop(); // dismiss loading
 
-    // Also update mock service so demo mode shows change
+    // Update mock service so demo mode shows the balance change.
+    // withdrawToUPI() now handles _persistDemoState + walletUpdated internally.
     try { context.read<MockDataService>().withdrawToUPI(amount, upiId); } catch (_) {}
-    AppEvents.instance.walletUpdated();
 
     final formattedBalance = amount.toString().replaceAllMapped(
         RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');

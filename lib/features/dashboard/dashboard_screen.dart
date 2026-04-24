@@ -706,9 +706,71 @@ class _DashboardScreenState extends State<DashboardScreen>
             'recommended_shift_windows': shiftWindows,
           };
 
+          // If no active disruption and no policy, also clear any stale nudge
+          if (mockSvc.activeDisruption == null) {
+            nudgeData = null;
+          }
+
           isLoading = false;
         });
       }
+
+      // ── Live API Blend (detached) ────────────────────────────────────────
+      // Fetch real weather + ML ISS for the persona's zone so the dashboard
+      // shows BOTH live conditions AND mock claims/disruptions simultaneously.
+      // This runs after the mock data has already painted the UI, so there's
+      // no perceived lag.
+      unawaited(() async {
+        try {
+          final zone = mockSvc.spoofedZone ?? mockSvc.worker.zone;
+          final liveDisruptions = await ApiService.instance.getDisruptions(zone);
+          final liveWeather = liveDisruptions['weather'] as Map<String, dynamic>? ?? {};
+          final liveNudge = liveDisruptions['predictive_nudge'] as Map<String, dynamic>?;
+          final apiRain = (liveWeather['rainfall_mm_1h'] as num?)?.toDouble() ?? 0.0;
+          final apiTemp = (liveWeather['temp_celsius'] as num?)?.toDouble() ?? 29.0;
+          final apiSource = liveWeather['source']?.toString() ?? 'Live API';
+
+          // Fetch real ML ISS score for the zone/persona
+          int? liveIss;
+          try {
+            final issData = await ApiService.instance.getIssScore();
+            liveIss = (issData['iss_score'] as num?)?.toInt();
+          } catch (_) {}
+
+          if (!mounted) return;
+          setState(() {
+            // Blend: weather is always real API (most accurate)
+            // but mock disruption overlay/trigger OVERRIDES rain reading
+            final hasRainDisruption = mockSvc.activeDisruption?.triggerIcon == 'rain';
+            final hasHeatDisruption = mockSvc.activeDisruption?.triggerIcon == 'heat';
+            weatherData = {
+              'source': '$apiSource + Mock Overlay',
+              'rainfall_mm_1h': hasRainDisruption ? 72.4 : apiRain,
+              'temp_celsius': hasHeatDisruption ? 42.0 : apiTemp,
+              // Preserve any extra real-API fields
+              ...liveWeather,
+              // Always label it as a blend so the debug panel is honest
+              'source': '$apiSource + Mock',
+            };
+            // Update ISS with real score if mock hasn't explicitly set one
+            if (liveIss != null) {
+              liveIssScore = liveIss;
+            }
+            // Merge live nudge with mock but only if no mock disruption is overriding
+            if (liveNudge != null && mockSvc.activeDisruption == null) {
+              nudgeData = {
+                'nudge_date': liveNudge['date'],
+                'probability_percentage': liveNudge['rain_chance'],
+                'description': liveNudge['message'] ?? liveNudge['description'],
+                'simulated_payout': liveNudge['expected_payout'] ?? 360,
+              };
+            }
+          });
+        } catch (_) {
+          // Non-critical: live API fetch failed, mock data already displayed
+        }
+      }());
+
       unawaited(_persistDashboardSnapshot());
       _isDashboardLoading = false;
       return;
@@ -1770,7 +1832,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               spacing: 8,
               runSpacing: 8,
               children: [
-                _buildCoverageChip('STARTS FROM ₹49/WEEK',
+                _buildCoverageChip('STARTS FROM ₹35/WEEK',
                     Icons.currency_rupee_rounded, mintColor, isDark),
                 _buildCoverageChip('TAP TO VIEW PLANS', Icons.touch_app_rounded,
                     mintColor, isDark),
@@ -1946,6 +2008,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               if (m == null) return const SizedBox.shrink();
               final label = t.translateSync(m['label'] as String? ?? '');
               final hours = m['hours'] as String? ?? '';
+              final text = hours.isNotEmpty ? '$label · $hours' : label;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Row(
@@ -1956,7 +2019,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '$label · $hours',
+                        text,
                         style: TextStyle(
                           color: subColor,
                           fontSize: 12,

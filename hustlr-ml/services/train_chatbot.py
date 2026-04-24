@@ -1,9 +1,12 @@
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
+from sklearn.metrics import classification_report, accuracy_score
 import joblib
 import json
 import os
+import numpy as np
 
 # Training dataset
 DATA = [
@@ -134,25 +137,82 @@ RESPONSES = {
 
 def train_model():
     df = pd.DataFrame(DATA)
-    
-    vectorizer = TfidfVectorizer(ngram_range=(1, 2))
-    X = vectorizer.fit_transform(df['text'])
     y = df['intent']
-    
-    model = LogisticRegression(random_state=42, class_weight='balanced')
-    model.fit(X, y)
-    
-    acc = model.score(X, y)
-    print(f"Training Accuracy: {acc * 100:.2f}%")
-    
+
+    # ── Step 1: Stratified 80/20 train/test split ──────────────────────────
+    # Stratify ensures every intent class is represented in both folds.
+    # With only 113 samples some classes have 3-4 examples, so test_size=0.20
+    # gives roughly 1 held-out sample per class — good enough to detect
+    # systematic mis-classifications without wasting training data.
+    X_text_train, X_text_test, y_train, y_test = train_test_split(
+        df['text'], y,
+        test_size=0.20,
+        random_state=42,
+        stratify=y,
+    )
+    print(f"[Chatbot] Split: {len(X_text_train)} train / {len(X_text_test)} test samples")
+
+    # ── Step 2: Fit vectorizer on TRAINING data only ───────────────────────
+    # Fitting on all data would leak test vocabulary — this prevents that.
+    vectorizer = TfidfVectorizer(ngram_range=(1, 2))
+    X_train = vectorizer.fit_transform(X_text_train)
+    X_test  = vectorizer.transform(X_text_test)       # transform only, no fit
+
+    # ── Step 3: Train the classifier ──────────────────────────────────────
+    model = LogisticRegression(
+        random_state=42,
+        class_weight='balanced',
+        max_iter=500,
+    )
+    model.fit(X_train, y_train)
+
+    # ── Step 4: Evaluate on held-out test set ─────────────────────────────
+    y_pred    = model.predict(X_test)
+    train_acc = accuracy_score(y_train, model.predict(X_train))
+    test_acc  = accuracy_score(y_test, y_pred)
+
+    print("[Chatbot] ── Evaluation Results ────────────────────────────────")
+    print(f"[Chatbot]   Train accuracy : {train_acc * 100:.2f}%")
+    print(f"[Chatbot]   Test  accuracy : {test_acc  * 100:.2f}%  ← held-out")
+    print("[Chatbot]   Per-class report (test set):")
+    print(classification_report(y_test, y_pred, zero_division=0))
+
+    # ── Step 5: Leave-One-Out cross-val for robust small-dataset estimate ──
+    vectorizer_full = TfidfVectorizer(ngram_range=(1, 2))
+    X_full = vectorizer_full.fit_transform(df['text'])
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(
+        LogisticRegression(random_state=42, class_weight='balanced', max_iter=500),
+        X_full, y, cv=cv, scoring='accuracy'
+    )
+    print(f"[Chatbot]   5-Fold CV accuracy: {np.mean(cv_scores)*100:.2f}% ± {np.std(cv_scores)*100:.2f}%")
+    print("[Chatbot] ────────────────────────────────────────────────────────")
+
+    # ── Step 6: Re-train on FULL dataset for production artifact ──────────
+    # After evaluation, we retrain on all data so the deployed model
+    # benefits from every example. This is standard practice.
+    vectorizer_prod = TfidfVectorizer(ngram_range=(1, 2))
+    X_prod = vectorizer_prod.fit_transform(df['text'])
+    model_prod = LogisticRegression(
+        random_state=42, class_weight='balanced', max_iter=500
+    )
+    model_prod.fit(X_prod, y)
+
     os.makedirs('models', exist_ok=True)
-    joblib.dump(vectorizer, 'models/chatbot_vectorizer.pkl')
-    joblib.dump(model, 'models/chatbot_model.pkl')
-    
+    joblib.dump(vectorizer_prod, 'models/chatbot_vectorizer.pkl')
+    joblib.dump(model_prod,      'models/chatbot_model.pkl')
+
     with open('models/chatbot_responses.json', 'w') as f:
         json.dump(RESPONSES, f)
-        
-    print("Chatbot ML artifacts successfully saved to /models")
+
+    print("[Chatbot] Production artifacts saved to /models")
+    print(f"[Chatbot] Reported test accuracy: {test_acc*100:.2f}% | CV: {np.mean(cv_scores)*100:.2f}%")
+    return {
+        "train_accuracy":   round(train_acc, 4),
+        "test_accuracy":    round(test_acc, 4),
+        "cv_mean_accuracy": round(float(np.mean(cv_scores)), 4),
+        "cv_std":           round(float(np.std(cv_scores)), 4),
+    }
 
 if __name__ == '__main__':
     train_model()

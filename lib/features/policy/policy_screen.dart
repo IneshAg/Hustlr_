@@ -708,6 +708,32 @@ class _UpgradeTabState extends State<_UpgradeTab> {
     final plans = _getPlans(context);
     final total = _calculateTotal();
 
+    // ── Quarterly lock logic ─────────────────────────────────────────────────
+    // Determine the current plan tier so we can disable downgrade/same-tier.
+    final currentTierStr = (widget.activePolicy?['plan_tier'] as String? ??
+            widget.activePolicy?['plan_name'] as String? ??
+            '')
+        .toLowerCase()
+        .replaceAll(' shield', '').trim();
+    const tierRank = {'basic': 1, 'standard': 2, 'full': 3};
+    final currentRank = tierRank[currentTierStr] ?? 0;
+    final hasActivePolicy = widget.activePolicy != null &&
+        (widget.activePolicy!['status']?.toString().toLowerCase() == 'active');
+
+    // Auto-select the next tier above the current one on first build
+    // so the button is immediately in a valid state.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (hasActivePolicy && tierRank[_selectedPlan] != null &&
+          tierRank[_selectedPlan]! <= currentRank) {
+        final nextTier = tierRank.entries
+            .where((e) => e.value > currentRank)
+            .fold<MapEntry<String,int>?>(null,
+                (best, e) => best == null || e.value < best.value ? e : best);
+        if (nextTier != null) setState(() => _selectedPlan = nextTier.key);
+      }
+    });
+
     return Column(
       children: [
         Expanded(
@@ -716,16 +742,26 @@ class _UpgradeTabState extends State<_UpgradeTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (widget.activeDays < 5) _buildProbationNotice(),
+                if (widget.activeDays < 5 && !hasActivePolicy) _buildProbationNotice(),
+                if (hasActivePolicy && currentRank > 0 && currentRank < 3)
+                  _buildUpgradeOnlyBanner(currentTierStr),
                 _sectionLabel(context, 'CHOOSE A SHIELD'),
                 const SizedBox(height: 12),
-                ...plans.map((p) => _PlanCard(
-                      plan: p,
-                      isSelected: _selectedPlan == p.id,
-                      isLocked: (p.id == 'standard' || p.id == 'full') && widget.activeDays < 5,
-                      activeDays: widget.activeDays,
-                      onTap: () => setState(() => _selectedPlan = p.id),
-                    )),
+                ...plans.map((p) {
+                  final planRank = tierRank[p.id] ?? 0;
+                  final isQuarterlyLocked = hasActivePolicy && planRank <= currentRank;
+                  return _PlanCard(
+                    plan: p,
+                    isSelected: _selectedPlan == p.id,
+                    isQuarterlyLocked: isQuarterlyLocked,
+                    currentTier: currentTierStr,
+                    isLocked: !hasActivePolicy && (p.id == 'standard' || p.id == 'full') && widget.activeDays < 5,
+                    activeDays: widget.activeDays,
+                    onTap: isQuarterlyLocked
+                        ? null
+                        : () => setState(() => _selectedPlan = p.id),
+                  );
+                }),
                 const SizedBox(height: 24),
                 if (_selectedPlan == 'standard' || _selectedPlan == 'full') ...[
                   _sectionLabel(context, 'INCOME ADD-ONS'),
@@ -752,10 +788,42 @@ class _UpgradeTabState extends State<_UpgradeTab> {
             ),
           ),
         ),
-        _buildActionSection(total),
+        _buildActionSection(total, isUpgrade: hasActivePolicy && currentRank > 0),
       ],
     );
   }
+
+  Widget _buildUpgradeOnlyBanner(String currentTier) {
+    final tierLabel = currentTier == 'basic' ? 'Basic Shield'
+        : currentTier == 'standard' ? 'Standard Shield' : 'Full Shield';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.amber.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.lock_clock_outlined, color: Colors.amber, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 12, color: Colors.amber, height: 1.4),
+                children: [
+                  const TextSpan(text: 'Quarterly commitment active. ', style: TextStyle(fontWeight: FontWeight.bold)),
+                  TextSpan(text: 'You are on $tierLabel. Downgrading is locked for 91 days. You can upgrade to a higher tier any time.'),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   int _calculateTotal() {
     int t = _planBasePremium(_selectedPlan);
@@ -900,7 +968,7 @@ class _UpgradeTabState extends State<_UpgradeTab> {
     );
   }
 
-  Widget _buildActionSection(int total) {
+  Widget _buildActionSection(int total, {bool isUpgrade = false}) {
     final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -915,14 +983,14 @@ class _UpgradeTabState extends State<_UpgradeTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('WEEKLY PREMIUM', 
+                const Text('WEEKLY PREMIUM',
                     style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
                 const SizedBox(height: 2),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text('₹$total', 
+                    Text('₹$total',
                         style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     const Text('/week', style: TextStyle(fontSize: 12, color: Colors.grey)),
                   ],
@@ -939,7 +1007,7 @@ class _UpgradeTabState extends State<_UpgradeTab> {
               });
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1B5E20),
+              backgroundColor: isUpgrade ? const Color(0xFF0D47A1) : const Color(0xFF1B5E20),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -948,15 +1016,17 @@ class _UpgradeTabState extends State<_UpgradeTab> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Column(
+                Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Proceed to', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, height: 1.2)),
-                    Text('Payment', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, height: 1.2)),
+                    Text(isUpgrade ? 'Upgrade' : 'Proceed to',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, height: 1.2)),
+                    Text(isUpgrade ? 'Plan' : 'Payment',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, height: 1.2)),
                   ],
                 ),
                 const SizedBox(width: 8),
-                const Icon(Icons.arrow_forward_rounded, size: 16),
+                Icon(isUpgrade ? Icons.arrow_upward_rounded : Icons.arrow_forward_rounded, size: 16),
               ],
             ),
           ),
@@ -1208,7 +1278,7 @@ class _ActiveCoverageCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 24);
+          const SizedBox(height: 24),
           
           // Policy details button
           InkWell(
@@ -1317,7 +1387,15 @@ class _ActiveCoverageCard extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => PdfGenerator.generateAndPreviewCertificate(),
+                  onPressed: () => PdfGenerator.generateAndPreviewCertificate(
+                    name: StorageService.getString('userName') ?? 'Hustlr Worker',
+                    zone: StorageService.userZone.isNotEmpty ? StorageService.userZone : 'Your Zone',
+                    planName: planName,
+                    policyNumber: policyId,
+                    coverageStart: DateTime.tryParse(activePolicy?['created_at']?.toString() ?? ''),
+                    coverageEnd: DateTime.tryParse(activePolicy?['commitment_end']?.toString() ?? ''),
+                    weeklyPremium: int.tryParse(premium) ?? 49,
+                  ),
                   icon: const Icon(Icons.download_rounded, size: 16, color: Colors.white),
                   label: const Text('Download Certificate', style: TextStyle(color: Colors.white, fontSize: 13)),
                   style: OutlinedButton.styleFrom(
@@ -1346,21 +1424,56 @@ class _ActiveCoverageCard extends StatelessWidget {
 class _PlanCard extends StatelessWidget {
   final _Plan plan;
   final bool isSelected;
-  final bool isLocked;
+  final bool isLocked;           // 5-day probation lock (new users, no policy)
+  final bool isQuarterlyLocked;  // 91-day downgrade lock (existing policyholders)
+  final String currentTier;      // e.g. 'basic', 'standard'
   final int activeDays;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
-  const _PlanCard({required this.plan, required this.isSelected, required this.onTap, this.isLocked = false, this.activeDays = 0});
+  const _PlanCard({
+    required this.plan,
+    required this.isSelected,
+    required this.onTap,
+    this.isLocked = false,
+    this.isQuarterlyLocked = false,
+    this.currentTier = '',
+    this.activeDays = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isElite = plan.isElite;
     final isDark = theme.brightness == Brightness.dark;
-    final isEliteActive = isElite && !isLocked;
-    
+    final anyLock = isLocked || isQuarterlyLocked;
+    final isEliteActive = isElite && !anyLock;
+
+    // Determine subtitle/label
+    String subtitleText;
+    Color subtitleColor;
+    Widget? lockIcon;
+
+    if (isQuarterlyLocked) {
+      final isCurrent = plan.id == currentTier;
+      subtitleText = isCurrent ? '✓ Your current plan' : 'Quarterly locked — upgrade only';
+      subtitleColor = isCurrent ? Colors.green.shade400 : Colors.grey;
+      lockIcon = isCurrent
+          ? null
+          : const Icon(Icons.lock_outline, size: 14, color: Colors.grey);
+    } else if (isLocked) {
+      subtitleText = 'Unlocks in ${5 - activeDays} days';
+      subtitleColor = Colors.red;
+      lockIcon = const Icon(Icons.lock, size: 14, color: Colors.red);
+    } else {
+      subtitleText = plan.subtitle;
+      subtitleColor = isEliteActive
+          ? Colors.white.withValues(alpha: 0.8)
+          : Colors.grey;
+      lockIcon = null;
+    }
+
     return GestureDetector(
-      onTap: isLocked ? null : onTap,
+      onTap: anyLock ? null : onTap,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -1368,16 +1481,16 @@ class _PlanCard extends StatelessWidget {
             margin: const EdgeInsets.only(bottom: 16),
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: isLocked 
+              color: anyLock
                   ? (isDark ? const Color(0xFF1C1F1C).withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5))
                   : (isElite ? const Color(0xFFFF8C00) : (isDark ? const Color(0xFF1C1F1C) : Colors.white)),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: isSelected 
-                  ? (isEliteActive ? Colors.white : theme.primaryColor) 
-                  : (isDark ? theme.dividerColor : Colors.grey.shade300), 
+                color: isSelected
+                  ? (isEliteActive ? Colors.white : theme.primaryColor)
+                  : (isDark ? theme.dividerColor : Colors.grey.shade300),
                 width: isSelected ? 2 : 1),
-              boxShadow: isSelected && !isDark && !isLocked ? [BoxShadow(color: theme.primaryColor.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 4))] : null,
+              boxShadow: isSelected && !isDark && !anyLock ? [BoxShadow(color: theme.primaryColor.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 4))] : null,
             ),
               child: IntrinsicHeight(
                 child: Row(
@@ -1398,25 +1511,21 @@ class _PlanCard extends StatelessWidget {
                                 children: [
                                   Row(
                                     children: [
-                                      Text(plan.name, 
+                                      Text(plan.name,
                                         style: TextStyle(
-                                          fontWeight: FontWeight.w600, 
+                                          fontWeight: FontWeight.w600,
                                           fontSize: 16,
-                                          color: isEliteActive ? Colors.white : theme.textTheme.titleLarge?.color
+                                          color: anyLock
+                                              ? Colors.grey
+                                              : (isEliteActive ? Colors.white : theme.textTheme.titleLarge?.color)
                                         )),
-                                      if (isLocked) ...[
-                                        const SizedBox(width: 8),
-                                        const Icon(Icons.lock, size: 14, color: Colors.red),
-                                      ],
+                                      if (lockIcon != null) ...[ const SizedBox(width: 8), lockIcon ],
                                     ],
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(isLocked ? 'Unlocks in ${5 - activeDays} days' : plan.subtitle, 
-                                      style: TextStyle(
-                                        fontSize: 13, 
-                                        color: isEliteActive ? Colors.white.withValues(alpha: 0.8) : (isLocked ? Colors.red : Colors.grey)
-                                      )),
-                                  if (isElite && !isLocked) ...[
+                                  Text(subtitleText,
+                                      style: TextStyle(fontSize: 13, color: subtitleColor)),
+                                  if (isElite && !anyLock) ...[
                                     const SizedBox(height: 12),
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1426,18 +1535,18 @@ class _PlanCard extends StatelessWidget {
                                     const SizedBox(height: 8),
                                     GestureDetector(
                                       onTap: () => context.push(AppRoutes.compoundTriggers),
-                                      child: const Text('Learn about compound triggers →', 
+                                      child: const Text('Learn about compound triggers →',
                                           style: TextStyle(color: Colors.white, fontSize: 11, decoration: TextDecoration.underline)),
                                     ),
                                   ],
                                 ],
                               ),
                             ),
-                            Text(plan.price, 
+                            Text(plan.price,
                                 style: TextStyle(
-                                  fontWeight: FontWeight.bold, 
+                                  fontWeight: FontWeight.bold,
                                   fontSize: 16,
-                                  color: isEliteActive ? Colors.white : theme.primaryColor
+                                  color: anyLock ? Colors.grey : (isEliteActive ? Colors.white : theme.primaryColor)
                                 )),
                           ],
                         ),
@@ -1447,7 +1556,7 @@ class _PlanCard extends StatelessWidget {
                 ),
               ),
             ),
-          if (plan.isMostPopular)
+          if (plan.isMostPopular && !isQuarterlyLocked)
             Positioned(
               top: 0,
               right: 16,
@@ -1460,7 +1569,7 @@ class _PlanCard extends StatelessWidget {
                 child: const Text('MOST POPULAR', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
               ),
             ),
-          if (plan.isElite)
+          if (plan.isElite && !isQuarterlyLocked)
             Positioned(
               top: 0,
               right: 16,

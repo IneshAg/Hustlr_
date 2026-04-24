@@ -27,7 +27,7 @@ async function buildWorkAdvisorPayload(zone, bundle, opts = {}) {
   let mlTomorrowRisk = null;
   try {
     const mlFc = await mlService.getForecast(zone);
-    const rows = mlFc.forecast || [];
+    const rows = mlFc?.forecast || [];
     if (rows[0] && typeof rows[0].risk_score === "number") {
       mlTomorrowRisk = rows[0].risk_score;
     }
@@ -79,6 +79,11 @@ async function attachWorkAdvisor(zone, bundle, opts = {}) {
       stability_band: "ELEVATED",
       stability_band_label: "Elevated disruption risk",
       headline: "Advisory temporarily unavailable — using safe defaults.",
+      suggest_activate_coverage: true,
+      recommended_shift_windows: [
+        { label: "Mid-morning", time: "9 AM – 12 PM", demand: "Medium" },
+        { label: "Evening", time: "6 PM – 9 PM", demand: "High" }
+      ],
       _source: "fallback",
     };
   }

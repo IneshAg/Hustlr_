@@ -126,7 +126,7 @@ class _ManualClaimReviewScreenState extends State<ManualClaimReviewScreen> {
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
             'systemInstruction': {
-              'parts': [{'text': 'You are a claims validation assistant. The user claims this is a "${widget.disruptionType}". Analyze the image and respond with ONLY "VALID" if the image shows evidence of this disruption, or "INVALID: <reason>" if it is irrelevant or fake.'}]
+              'parts': [{'text': 'You are a claims validation assistant. The user claims this is a "${widget.disruptionType}". Analyze the image. If the image clearly shows real-world evidence of this disruption, respond with exactly "VALID". If the image is irrelevant, a photo of a computer screen, or fake, respond with exactly "INVALID: [State the exact reason here, e.g. This is a photo of a laptop screen]".'}]
             },
             'contents': [
               {

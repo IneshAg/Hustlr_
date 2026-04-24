@@ -199,12 +199,43 @@ router.post("/create", async (req, res) => {
     if (plan_tier === "standard") finalPremium = Math.min(55, Math.max(45, finalPremium));
     if (plan_tier === "full") finalPremium = Math.min(85, Math.max(70, finalPremium));
 
-    // Deactivate any existing active policy for this user first
+    // ─── QUARTERLY LOCK: Enforce upgrade-only within the commitment period ────
+    const TIER_RANK = { basic: 1, standard: 2, full: 3 };
+    const { data: existingPolicy } = await supabase
+      .from("policies")
+      .select("id, plan_tier, coverage_end, status")
+      .eq("user_id", dbUserId)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (existingPolicy) {
+      const existingRank = TIER_RANK[existingPolicy.plan_tier] ?? 0;
+      const newRank = TIER_RANK[plan_tier] ?? 0;
+      const commitmentEnd = new Date(existingPolicy.coverage_end);
+      const now = new Date();
+      const isInCommitmentPeriod = commitmentEnd > now;
+
+      if (isInCommitmentPeriod && newRank <= existingRank) {
+        const planLabel = existingPolicy.plan_tier.charAt(0).toUpperCase() + existingPolicy.plan_tier.slice(1);
+        const daysLeft = Math.ceil((commitmentEnd - now) / (1000 * 60 * 60 * 24));
+        return res.status(403).json({
+          error: "quarterly_lock",
+          message: `You are in a 91-day commitment period for your ${planLabel} Shield plan. Downgrading is not permitted — you can upgrade to a higher tier at any time. Your current plan ends in ${daysLeft} day(s).`,
+          commitment_end: existingPolicy.coverage_end,
+          days_remaining: daysLeft,
+          current_tier: existingPolicy.plan_tier,
+          requested_tier: plan_tier,
+        });
+      }
+    }
+
+    // Deactivate any existing active policy (upgrade path or post-commitment new purchase)
     await supabase
       .from("policies")
       .update({ status: "cancelled" })
       .eq("user_id", dbUserId)
       .eq("status", "active");
+
 
     const { data: policy, error: policyError } = await supabase
       .from("policies")

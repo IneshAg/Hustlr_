@@ -82,7 +82,7 @@ async function getShadowSummary(userId, days = 14) {
     });
   }
 
-  const standardPremium = policy?.weekly_premium ?? 59;
+  const standardPremium = policy?.weekly_premium ?? 49;
   const netBenefit = Math.max(0, missedTotal - standardPremium * Math.ceil(days / 7));
 
   return {

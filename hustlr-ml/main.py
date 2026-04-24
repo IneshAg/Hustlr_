@@ -42,13 +42,15 @@ from services.ring_detector import (
     test_poisson_arrivals,
 )
 
-# ?????? Model bundle cache (loaded once at startup) ????????????????????????????????????????????????????????????????????????????????????????????
+# ────── Model bundle cache (loaded once at startup) ────────────────────────
 _MODEL_BUNDLE: dict | None = None
 _ISS_BUNDLE: dict | None = None
 _CHATBOT_BUNDLE: dict | None = None
 _GNN_MODEL: Any | None = None
 _GNN_BUILDER: Any | None = None
 _GNN_IMPORT_ERROR: str | None = None
+_CONNECTIVITY_BUNDLE: dict | None = None   # Model 5 — Isolation Forest (network)
+_TRAFFIC_BUNDLE: dict | None = None         # Model 6 — XGBoost traffic classifier
 MODELS_DIR = Path(__file__).parent / "models" / "trained"
 
 @asynccontextmanager
@@ -59,6 +61,8 @@ async def lifespan(app: FastAPI):
     global _GNN_MODEL
     global _GNN_BUILDER
     global _GNN_IMPORT_ERROR
+    global _CONNECTIVITY_BUNDLE
+    global _TRAFFIC_BUNDLE
     
     iso_path = MODELS_DIR / "model3_isolation_forest.pkl"
     if iso_path.exists():
@@ -131,15 +135,54 @@ async def lifespan(app: FastAPI):
         _GNN_MODEL = None
         _GNN_BUILDER = None
 
+    # ── Model 5: Connectivity / Network Anomaly (Isolation Forest) ──────────
+    m5_path = MODELS_DIR / "model5_iso_connectivity.pkl"
+    if m5_path.exists():
+        try:
+            import xgboost  # noqa: F401 — confirm xgb is available on this env
+            _CONNECTIVITY_BUNDLE = {
+                "model":      joblib.load(m5_path),
+                "scaler":     joblib.load(MODELS_DIR / "model5_scaler.pkl"),
+                "thresholds": joblib.load(MODELS_DIR / "model5_thresholds.pkl"),
+            }
+            print("[Startup] Model 5 — connectivity anomaly loaded")
+        except Exception as e:
+            print(f"[Startup] Model 5 load failed ({e}) — connectivity scoring disabled")
+            _CONNECTIVITY_BUNDLE = None
+    else:
+        print("[Startup] Model 5 not found — connectivity scoring disabled")
+
+    # ── Model 6: Traffic / Congestion Classifier (XGBoost) ───────────────────
+    m6_path = MODELS_DIR / "model6_traffic_classifier.json"
+    if m6_path.exists():
+        try:
+            import xgboost as xgb
+            import json as _json
+            clf = xgb.XGBClassifier()
+            clf.load_model(str(m6_path))
+            _TRAFFIC_BUNDLE = {
+                "model":   clf,
+                "encoder": joblib.load(MODELS_DIR / "model6_label_encoder.pkl"),
+                "features": joblib.load(MODELS_DIR / "model6_features.pkl"),
+            }
+            print("[Startup] Model 6 — traffic classifier loaded")
+        except Exception as e:
+            print(f"[Startup] Model 6 load failed ({e}) — traffic classifier disabled")
+            _TRAFFIC_BUNDLE = None
+    else:
+        print("[Startup] Model 6 not found — traffic classifier disabled")
+
     yield  # server runs here
 
     # Cleanup on shutdown
-    _MODEL_BUNDLE = None
-    _ISS_BUNDLE = None
-    _CHATBOT_BUNDLE = None
-    _GNN_MODEL = None
-    _GNN_BUILDER = None
-    _GNN_IMPORT_ERROR = None
+    _MODEL_BUNDLE       = None
+    _ISS_BUNDLE         = None
+    _CHATBOT_BUNDLE     = None
+    _GNN_MODEL          = None
+    _GNN_BUILDER        = None
+    _GNN_IMPORT_ERROR   = None
+    _CONNECTIVITY_BUNDLE = None
+    _TRAFFIC_BUNDLE     = None
 
 
 
@@ -618,6 +661,140 @@ async def chat_bot(req: ChatRequest):
 
 
 
+# ────── Model 5: Connectivity Anomaly Scoring ─────────────────────────────────
+
+class ConnectivityRequest(BaseModel):
+    worker_id: str
+    ip_cluster_size: int = Field(1, description="Workers sharing same IP subnet")
+    vpn_detected: bool = False
+    device_count_on_ip: int = 1
+    new_device_flag: bool = False
+    ip_country_mismatch: bool = False
+
+class ConnectivityResponse(BaseModel):
+    worker_id: str
+    anomaly_score: float
+    is_anomalous: bool
+    risk_label: str
+    model_used: str
+
+@app.post("/connectivity/score", response_model=ConnectivityResponse, tags=["Connectivity"])
+async def connectivity_score(req: ConnectivityRequest):
+    """
+    Model 5 — Isolation Forest connectivity/network anomaly scoring.
+    Detects VPN abuse, IP subnet clustering, device fingerprint anomalies.
+    """
+    import numpy as np
+
+    # Rule-engine fallback when model is not loaded
+    if _CONNECTIVITY_BUNDLE is None:
+        rule_score = (
+            (0.30 if req.ip_cluster_size > 5  else 0.0) +
+            (0.25 if req.vpn_detected           else 0.0) +
+            (0.20 if req.device_count_on_ip > 3 else 0.0) +
+            (0.15 if req.new_device_flag         else 0.0) +
+            (0.10 if req.ip_country_mismatch     else 0.0)
+        )
+        is_anom = rule_score >= 0.50
+        return ConnectivityResponse(
+            worker_id=req.worker_id,
+            anomaly_score=round(rule_score, 4),
+            is_anomalous=is_anom,
+            risk_label="HIGH" if rule_score >= 0.70 else ("MEDIUM" if is_anom else "LOW"),
+            model_used="rule_engine_fallback",
+        )
+
+    model      = _CONNECTIVITY_BUNDLE["model"]
+    scaler     = _CONNECTIVITY_BUNDLE["scaler"]
+    thresholds = _CONNECTIVITY_BUNDLE["thresholds"]
+
+    X_raw = np.array([[
+        req.ip_cluster_size,
+        int(req.vpn_detected),
+        req.device_count_on_ip,
+        int(req.new_device_flag),
+        int(req.ip_country_mismatch),
+    ]], dtype=float)
+
+    X_scaled = scaler.transform(X_raw)
+    raw_score = model.decision_function(X_scaled)[0]
+    # Sigmoid transform into [0,1] — same normalisation used for fraud model
+    anomaly_score = float(1.0 - (1.0 / (1.0 + np.exp(-raw_score * 4.0))))
+
+    threshold = thresholds.get("anomaly_threshold", 0.55) if isinstance(thresholds, dict) else 0.55
+    is_anom   = anomaly_score >= threshold
+
+    return ConnectivityResponse(
+        worker_id=req.worker_id,
+        anomaly_score=round(anomaly_score, 4),
+        is_anomalous=is_anom,
+        risk_label="HIGH" if anomaly_score >= 0.75 else ("MEDIUM" if is_anom else "LOW"),
+        model_used="model5_isolation_forest",
+    )
+
+
+# ────── Model 6: Traffic / Congestion Classifier ──────────────────────────────
+
+class TrafficRequest(BaseModel):
+    zone_id: str
+    hour_of_day: int = Field(12, ge=0, le=23)
+    day_of_week: int = Field(1, ge=0, le=6, description="0=Monday, 6=Sunday")
+    precipitation_mm: float = 0.0
+    temperature_c: float = 32.0
+    festival_active: bool = False
+
+class TrafficResponse(BaseModel):
+    zone_id: str
+    congestion_label: str
+    congestion_index: float
+    model_used: str
+
+@app.post("/traffic/classify", response_model=TrafficResponse, tags=["Traffic"])
+async def traffic_classify(req: TrafficRequest):
+    """
+    Model 6 — XGBoost traffic / congestion classifier.
+    Returns congestion label (LOW / MEDIUM / HIGH / SEVERE) for a zone
+    and time window — used by the ISS scoring and premium engine.
+    """
+    import numpy as np
+
+    # Rule-engine fallback when model is not loaded
+    if _TRAFFIC_BUNDLE is None:
+        idx = min(1.0, req.precipitation_mm / 50.0 + int(req.festival_active) * 0.3)
+        label = "SEVERE" if idx > 0.8 else "HIGH" if idx > 0.5 else "MEDIUM" if idx > 0.2 else "LOW"
+        return TrafficResponse(
+            zone_id=req.zone_id,
+            congestion_label=label,
+            congestion_index=round(idx, 4),
+            model_used="rule_engine_fallback",
+        )
+
+    model   = _TRAFFIC_BUNDLE["model"]
+    encoder = _TRAFFIC_BUNDLE["encoder"]
+
+    X = np.array([[
+        req.hour_of_day,
+        req.day_of_week,
+        req.precipitation_mm,
+        req.temperature_c,
+        int(req.festival_active),
+    ]], dtype=float)
+
+    try:
+        pred_encoded = model.predict(X)[0]
+        label = encoder.inverse_transform([pred_encoded])[0]
+        probs = model.predict_proba(X)[0]
+        idx   = float(max(probs))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Traffic classifier error: {e}")
+
+    return TrafficResponse(
+        zone_id=req.zone_id,
+        congestion_label=str(label),
+        congestion_index=round(idx, 4),
+        model_used="model6_xgboost",
+    )
+
 
 @app.get("/fraud/model-health", tags=["Health"])
 async def model_health():
@@ -649,13 +826,15 @@ async def model_health():
 
 @app.get("/health", tags=["Health"])
 async def health():
-    iso_ok = _MODEL_BUNDLE is not None
-    iss_ok = _ISS_BUNDLE is not None
-    gnn_ok = _GNN_MODEL is not None
+    iso_ok  = _MODEL_BUNDLE is not None
+    iss_ok  = _ISS_BUNDLE is not None
+    gnn_ok  = _GNN_MODEL is not None
+    con_ok  = _CONNECTIVITY_BUNDLE is not None
+    trf_ok  = _TRAFFIC_BUNDLE is not None
+    chat_ok = _CHATBOT_BUNDLE is not None
 
-    # We do a basic check for prophet models without re-importing the logic fully here
-    # Assuming around 10 based on our prompt requirements
-    prophet_count = 10 
+    # Count Prophet pkl files actually present on disk
+    prophet_count = len(list(MODELS_DIR.glob("model7_prophet_*.pkl")))
     overall = "ok" if iso_ok else "degraded"
 
     return {
@@ -664,40 +843,65 @@ async def health():
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "models": {
             "isolation_forest": {
-                "loaded":  iso_ok,
-                "source":  _MODEL_BUNDLE.get("source", "inline") if iso_ok else None,
+                "loaded":    iso_ok,
+                "source":    _MODEL_BUNDLE.get("source", "trained") if iso_ok else None,
                 "n_samples": _MODEL_BUNDLE.get("n_samples") if iso_ok else None,
+                "threshold": _MODEL_BUNDLE.get("threshold") if iso_ok else None,
             },
             "iss_xgboost": {
                 "loaded": iss_ok,
+                "model":  "model1_iss_xgboost",
             },
             "gnn_fraud_detection": {
-                "loaded": gnn_ok,
+                "loaded":     gnn_ok,
                 "model_type": "GraphSAGE",
+                "note":       "Enable with ENABLE_GNN_FRAUD=true env var" if not gnn_ok else "active",
             },
             "prophet_zones": {
-                "loaded": prophet_count,
-                "total":  10,
+                "loaded":          prophet_count > 0,
+                "pkls_on_disk":    prophet_count,
+                "zones_mapped":    150,
+                "fallback_policy": "adyar (Chennai generic) when zone pkl missing",
             },
-            "ring_detector": True,
-            "nlp_classifier": True,
+            "ring_detector": {
+                "loaded":    True,
+                "algorithm": "Poisson KS-test + DBSCAN (50m / min 5 workers)",
+            },
+            "nlp_chatbot": {
+                "loaded":  chat_ok,
+                "classes": 17,
+                "model":   "LogisticRegression + TF-IDF bigrams",
+            },
+            "connectivity_anomaly": {
+                "loaded": con_ok,
+                "model":  "model5_isolation_forest",
+            },
+            "traffic_classifier": {
+                "loaded": trf_ok,
+                "model":  "model6_xgboost",
+            },
         },
         "endpoints": {
-            "POST /iss":              "XGBoost ISS scoring",
-            "POST /premium":          "Dynamic premium calculation",
-            "POST /fraud-score":      "Isolation Forest fraud scoring",
-            "POST /ml/fraud-score":   "Alias for /fraud-score",
-            "POST /fraud/ring-detect":"Poisson + DBSCAN ring detection",
-            "POST /fraud/gnn-ring-detect": "GNN GraphSAGE fraud ring detection",
-            "GET /forecast/{zone_id}":"Prophet 7-day disruption forecast",
-            "GET /fraud/model-health":"Detailed model diagnostics",
-            "GET /health":            "This endpoint",
+            "POST /iss":                    "XGBoost ISS scoring",
+            "POST /premium":                "Dynamic premium calculation",
+            "POST /fraud-score":            "Isolation Forest fraud scoring",
+            "POST /ml/fraud-score":         "Alias for /fraud-score",
+            "POST /fraud/ring-detect":      "Poisson + DBSCAN ring detection",
+            "POST /fraud/gnn-ring-detect":  "GNN GraphSAGE fraud ring detection",
+            "GET  /forecast/{zone_id}":     "Prophet 7-day disruption forecast",
+            "POST /forecast/retrain":       "Retrain Prophet from Open-Meteo data",
+            "POST /connectivity/score":     "Model 5 — network anomaly scoring",
+            "POST /traffic/classify":       "Model 6 — congestion classification",
+            "POST /chat":                   "NLP chatbot intent classification",
+            "GET  /fraud/model-health":     "Detailed fraud model diagnostics",
+            "GET  /health":                 "This endpoint",
         },
         "notes": [
             "fraud-score accepts both Node.js and Python feature shapes",
-            "ISS score is backend-only ??? never sent to Flutter app",
+            "ISS score is backend-only — never sent to Flutter app",
             "Zone depth scoring runs in Node.js (Haversine), not here",
-            "GNN fraud detection requires trained model at models/gnn_fraud_detector.pt",
+            "GNN fraud detection disabled by default — set ENABLE_GNN_FRAUD=true",
+            "Model 5/6 fall back to rule engines when pkl not available",
         ],
     }
 

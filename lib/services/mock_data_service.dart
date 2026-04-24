@@ -991,18 +991,33 @@ class MockDataService extends ChangeNotifier {
 
     final userId = StorageService.userId;
 
-    // Optimistic UI update
+    // Demo / DEMO_ users: update in-memory state only — never call the real API.
+    // Calling the real API with a fake userId causes it to fail and the
+    // .onError handler would silently revert the balance, making the withdrawal
+    // appear to have no effect.
+    final isDemoUser = worker.id.startsWith('DEMO_') ||
+        worker.id.startsWith('demo-') ||
+        worker.id.startsWith('mock-') ||
+        userId.startsWith('DEMO_') ||
+        userId.startsWith('demo-') ||
+        userId.startsWith('mock-') ||
+        userId.startsWith('00000000') ||
+        userId.isEmpty;
+
     walletBalance -= amount;
     transactions.insert(0, {
       'type': 'debit',
       'title': 'UPI Withdrawal',
-      'subtitle': upiId,
+      'subtitle': upiId.isEmpty ? 'Bank Direct' : upiId,
       'amount': amount,
       'date': 'Just now',
     });
+    // Persist so Hive cache stays consistent with the new balance
+    _persistDemoState();
     notifyListeners();
+    AppEvents.instance.walletUpdated();
 
-    if (userId.isEmpty) return;
+    if (isDemoUser) return; // ← demo done, skip real API call
 
     ApiService.walletDebit(
       userId: userId,
@@ -1013,10 +1028,12 @@ class MockDataService extends ChangeNotifier {
       // Success — optimistic UI already applied
     }).onError((e, _) {
       debugPrint('[MockDataService] walletDebit error: $e');
-      // Revert on failure
+      // Revert on real-API failure only
       walletBalance += amount;
       transactions.removeAt(0);
+      _persistDemoState();
       notifyListeners();
+      AppEvents.instance.walletUpdated();
     });
   }
 
@@ -1257,6 +1274,18 @@ class MockDataService extends ChangeNotifier {
     box?.delete('demo_transactions');
     box?.delete('demo_claims');
     box?.delete('demo_activeDisruption');
+    box?.delete('demo_hasActivePolicy');
+    box?.delete('demo_activePolicyTier');
+    // Critically: clear isDemoSession so the dashboard stops the mock path
+    box?.delete('isDemoSession');
+    box?.put('isDemoSession', false); // matches how login_screen / auth_service reset it
+    spoofedZone = null;
+    shadowEvents = [
+      ShadowEventModel(triggerIcon: "rain", triggerName: "Rain Disruption", date: "Oct 12, 2025", claimableAmount: 120),
+      ShadowEventModel(triggerIcon: "downtime", triggerName: "Platform Downtime", date: "Oct 8, 2025", claimableAmount: 100),
+    ];
+    missedAmount = 220;
+    missedEventsCount = 2;
     
     // Reset ISS history
     issHistory = [55, 60, 52, 68, 58, 62];
