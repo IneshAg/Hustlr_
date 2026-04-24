@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "framework": "nextjs",
+  "buildCommand": "bash vercel-build.sh",
+  "installCommand": "npm ci",
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/admin"
+    }
+  ]
+}

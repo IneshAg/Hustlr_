@@ -1,0 +1,115 @@
+{
+  "datasets": {
+    "claims_fraud.csv": {
+      "sha256": "a4870f3738d19a97935575efbfcc555777bed0da2327d0f79945ced1870ff6a3",
+      "rows": 14017
+    },
+    "connectivity_dataset.csv": {
+      "sha256": "687eadec2352ea569aedd4c690f10175d976d739649a2ab19fe9bc996d1a0371",
+      "rows": 43830
+    },
+    "nlp_disruption_events.csv": {
+      "sha256": "5694a7d63d290d358b22f1262735b4fd18365ae0ebf1ffa6707c00f19d61b662",
+      "rows": 15515
+    },
+    "prophet_training.csv": {
+      "sha256": "309a9ed019bf07424c8925bdc9189525104a6b710985a93a05190787024bd8c8",
+      "rows": 43805
+    },
+    "traffic_accidents.csv": {
+      "sha256": "ef816b1375595cd277e05a90111123ff95c8f38aae17d063a98d765105e47acb",
+      "rows": 175320
+    },
+    "weather_dataset.csv": {
+      "sha256": "7ee37c4e3bf106efb310e63a36c3d2cc5ede2a1c2c1da8e48e892a643b0059af",
+      "rows": 43830
+    },
+    "worker_profiles.csv": {
+      "sha256": "584d684a66a98eb43c0317f03c8cd0fda05ed4b57b5c761be3348576fb1fb975",
+      "rows": 10000
+    }
+  },
+  "artifacts": {
+    "model1_baseline_ridge.pkl": {
+      "sha256": "29b73cb415bae58b825b19eebcbf489aac01360a87fbf7aa320f0e173d47e476",
+      "bytes": 1209
+    },
+    "model1_diagnostics.json": {
+      "sha256": "7174ad12e31d4d1139fe85d43631250a99867e654f6378da62f885ae15891872",
+      "bytes": 189
+    },
+    "model1_features.pkl": {
+      "sha256": "e763b39299ab9119efffceb65e1024b6e869d2cb1eb9c27042288c9dd734dde1",
+      "bytes": 159
+    },
+    "model1_iss_xgboost.pkl": {
+      "sha256": "b7db328c90022cb569fe098213e0c55ca7ed058dc3553361d28aca7b9f26f1aa",
+      "bytes": 507366
+    },
+    "model3_features.pkl": {
+      "sha256": "957ea8cbb3424e224b7a361d7504afa72b688dfbb42351e79511ed57d5ddcbc7",
+      "bytes": 346
+    },
+    "model3_fraud_classifier.json": {
+      "sha256": "e7f8ba94fd0e8191f4e90cdfed748e79a74af159bed28fd28aa9646d6fc34013",
+      "bytes": 603123
+    },
+    "model3_isolation_forest.pkl": {
+      "sha256": "73753d74e509a4c43b58e65f7769b9d632b1e898173f38b06fddc3389854c8cc",
+      "bytes": 2556809
+    },
+    "model3_probability_calibrator.pkl": {
+      "sha256": "c9bc7ea032bcc6c0cd28b5e93eaaf32727086e0f97a2560a0b9bbbdcad7e0cc8",
+      "bytes": 879
+    },
+    "model3_scaler.pkl": {
+      "sha256": "db02405bcb2057b06ec33a574c4b4aded566c41c6857117d02adc436a852cfa5",
+      "bytes": 967
+    },
+    "model3_thresholds.pkl": {
+      "sha256": "426b1ae105e64bcc92837fb6d648a0c46577a27deb8550ba750319d2977ceb31",
+      "bytes": 286
+    },
+    "model4_label_map.pkl": {
+      "sha256": "da7e9b01d02e7e722ba915999f5c6c4fa88160864c01b2b7699824eff9197058",
+      "bytes": 83
+    },
+    "model4_rf_nlp.json": {
+      "sha256": "eb2f8d9f604f2ffe80930f75a03527238d2bb692cb33411eb149d9d05a674049",
+      "bytes": 2886478
+    },
+    "model4_tfidf.pkl": {
+      "sha256": "539eed3ae4dec16d8419199324af84676f8af5c89f77c695254c8c15af5ab62a",
+      "bytes": 167277
+    },
+    "model5_iso_connectivity.pkl": {
+      "sha256": "43ed46fd723989432eeac483e728962877bca5658e3bcc94dc6565e4470f6ecc",
+      "bytes": 2580345
+    },
+    "model5_scaler.pkl": {
+      "sha256": "ee44474c9461a49ae9a3525dc807449ac553542f4096d7918f0d6d43b24c5f09",
+      "bytes": 639
+    },
+    "model5_thresholds.pkl": {
+      "sha256": "a3807ea76a9b5391d4f73c5c250411489a95cc57913a7226e2e7957d1da6caee",
+      "bytes": 224
+    },
+    "model6_congestion_baseline.json": {
+      "sha256": "67584bf635b2da6ac569750d2eaa0d41efc11815394be1e8735a41979e115ffc",
+      "bytes": 193062
+    },
+    "model6_features.pkl": {
+      "sha256": "ca6f76dff0dd228cd1d9bb3152dd5071174766db84870dfc1c803123a97b8401",
+      "bytes": 128
+    },
+    "model6_label_encoder.pkl": {
+      "sha256": "f478bc377d086130c66ec50248b4c2d23735255f597ca1e756e64ff277a9cf99",
+      "bytes": 529
+    },
+    "model6_traffic_classifier.json": {
+      "sha256": "a065a31f9e438b890a9ccfc2f31a6b0c72eabaf3bd85f90f7dae262ff75adcfc",
+      "bytes": 604312
+    }
+  },
+  "benchmark_dir": "C:\\Users\\inesh\\Downloads\\Dhruvv-Hustlr\\outputs\\benchmarks"
+}

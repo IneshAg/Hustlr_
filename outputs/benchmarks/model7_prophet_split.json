@@ -1,0 +1,11 @@
+{
+  "dataset": "prophet_training.csv",
+  "split_policy": "rolling_backtest_reference",
+  "test_size_reference": 0.2,
+  "reference_split_index": 35044,
+  "window_starts": [
+    0.6,
+    0.7,
+    0.8
+  ]
+}

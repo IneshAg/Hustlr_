@@ -1,0 +1,22 @@
+{
+  "user_id": "uuid-karthik-001",
+  "plan_tier": "standard",
+  "plan_name": "Standard Shield",
+  "zone": "Adyar Dark Store Zone",
+  "city": "Chennai",
+  "platform": "Zepto",
+  "iss_score": 74,
+  "weekly_premium": 49,
+  "max_weekly_payout": 700,
+  "coverage_start": "2026-04-07",
+  "coverage_end": "2026-04-14",
+  "riders": ["rain", "heat", "aqi", "platform_outage"],
+  "policy_holder": {
+    "name": "Karthik S",
+    "phone": "+919876543210",
+    "kyc_status": "VERIFIED",
+    "days_active_on_platform": 287
+  },
+  "guidewire_product_code": "HUSTLR_STD_PARAMETRIC_V2",
+  "insurer_code": "ICICI_LOMBARD"
+}

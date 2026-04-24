@@ -1,0 +1,15 @@
+{
+  "seed": 42,
+  "test_size": 0.2,
+  "target_column": "Time_taken(min)",
+  "input_csv": "C:/Users/inesh/Downloads/train.csv",
+  "output_dir": "C:/Users/inesh/Downloads/model_outputs",
+  "cv_folds": 2,
+  "baseline_report_candidates": [
+    "C:/Users/inesh/Downloads/model_outputs/delivery_time_training_report.json",
+    "C:/Users/inesh/Downloads/model_outputs/delivery_time_augmentation_report.json",
+    "C:/Users/inesh/Downloads/model_outputs/delivery_time_improvement_report_v2.json",
+    "C:/Users/inesh/Downloads/model_outputs/delivery_time_improvement_report_v3.json",
+    "C:/Users/inesh/Downloads/model_outputs/delivery_time_improvement_report_v4.json"
+  ]
+}

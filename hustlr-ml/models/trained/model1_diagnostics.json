@@ -1,0 +1,7 @@
+{
+  "test_size": 0.3,
+  "xgboost_test_mae": 4.5458502772197225,
+  "xgboost_test_r2": 0.7047757358232141,
+  "ridge_test_mae": 4.645336188060622,
+  "ridge_test_r2": 0.692657367206452
+}

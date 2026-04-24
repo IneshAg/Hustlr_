@@ -1,0 +1,85 @@
+{
+  "policycenter": {
+    "endpoint": "/policies/create",
+    "method": "POST",
+    "description": "Creates a new weekly parametric policy for a gig worker",
+    "trigger": "Worker selects plan on Hustlr app",
+    "payload_fields": [
+      "user_id", "plan_tier", "zone", "city",
+      "platform", "iss_score", "weekly_premium",
+      "max_weekly_payout", "coverage_start", "coverage_end"
+    ],
+    "guidewire_mapping": {
+      "user_id":         "Policy.policyHolderID",
+      "plan_tier":       "Policy.productCode",
+      "weekly_premium":  "Policy.totalPremiumAmount",
+      "coverage_start":  "Policy.effectiveDate",
+      "coverage_end":    "Policy.expirationDate"
+    },
+    "response_fields": [
+      "policy_id", "status", "confirmation_number"
+    ]
+  },
+
+  "claimcenter": {
+    "endpoint": "/claims/create",
+    "method": "POST",
+    "description": "Creates a pre-validated parametric claim",
+    "trigger": "Automated disruption trigger fires",
+    "payload_fields": [
+      "claim_id", "user_id", "policy_id",
+      "trigger_type", "trigger_data", "zone",
+      "fps_score", "fps_decision", "gross_payout",
+      "tranche1", "tranche2", "data_trust_score"
+    ],
+    "guidewire_mapping": {
+      "claim_id":     "Claim.claimNumber",
+      "fps_decision": "Claim.fraudIndicator",
+      "gross_payout": "Claim.totalReserve",
+      "tranche1":     "Claim.recoverableAmount"
+    },
+    "routing_rules": {
+      "fps_GREEN":  "Auto-approve → BillingCenter payout",
+      "fps_YELLOW": "Soft hold → 2hr review queue",
+      "fps_RED":    "Human review queue → SLA 4hrs"
+    }
+  },
+
+  "billingcenter": {
+    "premium_debit": {
+      "endpoint": "/billing/debit",
+      "method": "POST",
+      "description": "Weekly premium deduction every Monday",
+      "schedule": "Every Monday 12:01 AM IST"
+    },
+    "payout_dispatch": {
+      "endpoint": "/billing/payout",
+      "method": "POST",
+      "description": "Tranche payout dispatch via UPI",
+      "tranche1_sla": "Within 2 hours of claim approval",
+      "tranche2_sla": "Sunday 11 PM weekly batch"
+    }
+  },
+
+  "webhooks": {
+    "circuit_breaker_tripped": {
+      "event": "circuit_breaker.tripped",
+      "payload": {
+        "zone": "string",
+        "city": "string",
+        "bcr": "float",
+        "action": "ENROLLMENT_PAUSED"
+      },
+      "description": "Fires when BCR > 85%. Insurer must acknowledge."
+    },
+    "catastrophe_alert": {
+      "event": "reinsurance.trigger",
+      "payload": {
+        "exposure": "integer",
+        "pool_size": "integer",
+        "trigger_level": "4x_weekly_pool",
+        "reinsurer_notified": "boolean"
+      }
+    }
+  }
+}

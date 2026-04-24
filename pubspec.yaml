@@ -1,0 +1,92 @@
+name: Hustlr
+description: Hustlr – Parametric income insurance for gig workers.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+
+  # Navigation
+  go_router: ^17.1.0
+
+  # Local storage
+  shared_preferences: ^2.2.0
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # Charts
+  fl_chart: ^1.2.0
+
+  # Location
+  geolocator: ^14.0.2
+
+  # Firebase
+  firebase_core: ^4.6.0
+  firebase_messaging: ^16.1.3
+
+  # UI helpers
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.5+1
+  google_fonts: ^8.0.2
+  http: ^1.2.0
+  url_launcher: ^6.3.1
+  pdf: ^3.12.0
+  printing: ^5.14.3
+  path_provider: ^2.1.5
+  open_filex: ^4.7.0
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.5
+  supabase_flutter: ^2.8.3
+  image_picker: ^1.2.1
+  permission_handler: ^12.0.1
+  firebase_auth: ^6.3.0
+  # Android Play Integrity token (server verifies via Google API)
+
+  # Biometric Authentication (Phase 3)
+  local_auth: ^2.3.0 # Native fingerprint / Face ID (Android + iOS)
+
+  # ML Kit Face Detection for local face recognition
+  google_mlkit_face_detection: ^0.11.0
+
+  # Razorpay Payment SDK (Sandbox mode for testing)
+  razorpay_flutter: ^1.3.5
+
+  # Background Geolocation + Anti-Spoofing (Phase 3)
+  flutter_foreground_task: ^8.15.0 # Native Android Foreground Service (MIT, free)
+  background_fetch: ^1.3.8
+  app_settings: ^5.1.1 # Deep-links to battery optimization settings
+
+  flutter_local_notifications: ^21.0.0
+  camera: ^0.12.0+1
+  connectivity_plus: ^7.1.1
+  uuid: ^4.5.3
+  webview_flutter: ^4.13.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.13
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/icon.png"
+  min_sdk_size: 21
+
+flutter:
+  generate: true
+  uses-material-design: true
+  assets:
+    - assets/icon.png
+    - assets/images/
+    - assets/icons/
+    - assets/lottie/

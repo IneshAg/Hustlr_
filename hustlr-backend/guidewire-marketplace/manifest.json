@@ -1,0 +1,49 @@
+{
+  "name": "Hustlr Parametric Income Protection",
+  "version": "2.0.0",
+  "vendor": "Code Crackers",
+  "category": "Parametric Insurance",
+  "tags": [
+    "parametric",
+    "gig-economy",
+    "microinsurance",
+    "income-protection",
+    "India",
+    "q-commerce"
+  ],
+  "guidewire_products": [
+    "PolicyCenter",
+    "ClaimCenter",
+    "BillingCenter"
+  ],
+  "description":
+    "AI-powered parametric income protection for Q-commerce delivery workers. Monitors 9 real-time disruption triggers (rain, heat, AQI, platform outage, bandh, internet blackout, traffic). Payouts fire automatically with no claim filed. Sub-2-minute settlement. 7-layer fraud engine. Designed for Zepto delivery partners in India.",
+  "coverage_types": [
+    "Income Protection",
+    "Parametric Weather",
+    "Parametric Platform Disruption"
+  ],
+  "supported_cities": [
+    "Chennai", "Mumbai", "Bengaluru", "Kolkata", "Delhi", "Hyderabad"
+  ],
+  "premium_range_inr_weekly": { "min": 35, "max": 79 },
+  "target_segment": "Gig Economy — Q-Commerce Delivery Workers",
+  "loss_ratio_target": 0.65,
+  "api_base_url": "https://hustlr-ad32.onrender.com",
+  "api_docs": "https://hustlr-ad32.onrender.com/docs",
+  "webhook_events": [
+    "policy.created",
+    "policy.cancelled",
+    "claim.triggered",
+    "claim.approved",
+    "claim.flagged",
+    "payout.dispatched",
+    "circuit_breaker.tripped"
+  ],
+  "ready_for_guidewire": true,
+  "contact": {
+    "team": "Code Crackers",
+    "email": "ineshag123@gmail.com",
+    "github": "https://github.com/Dhruvv-16/Hustlr"
+  }
+}

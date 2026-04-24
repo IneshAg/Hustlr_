@@ -1,0 +1,2 @@
+# Intentionally left without Git LFS filters to keep PaaS clones (e.g., Render)
+# from failing when LFS budget is exhausted.
