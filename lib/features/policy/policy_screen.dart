@@ -332,10 +332,9 @@ class _PolicyScreenState extends State<PolicyScreen>
               'plan_name': mock.activePolicy.plan,
               'status': 'active',
               'weekly_premium': mock.activePolicy.premium,
-              'coverage_start': mock.activePolicy.coverageStart,
+              'created_at': mock.activePolicy.coverageStart,
               'commitment_end': mock.activePolicy.coverageEnd,
               'riders': mock.activePolicy.riders.map((r) => {'name': r}).toList(),
-              'created_at': mock.activePolicy.coverageStart,
             };
           }
 
@@ -1082,11 +1081,19 @@ class _LiveHistoryTab extends StatelessWidget {
 
         // Format dates
         String dateRange = '-';
-        final start = DateTime.tryParse(item['created_at']?.toString() ?? '');
-        final end = DateTime.tryParse(item['commitment_end']?.toString() ?? '');
+        final startStr = item['created_at'] ?? item['start_date'] ?? '';
+        final start = DateTime.tryParse(startStr.toString());
+        final endStr = item['commitment_end'] ?? item['expires_at'] ?? item['end_date'] ?? '';
+        final end = DateTime.tryParse(endStr.toString());
+        
         if (start != null) {
           final endDate = end ?? start.add(const Duration(days: 91));
           dateRange = '${start.day}/${start.month}/${start.year} – ${endDate.day}/${endDate.month}/${endDate.year}';
+        } else if (item['_isCurrent'] == true) {
+          // Fallback for current policy if dates are completely missing from local storage
+          final now = DateTime.now();
+          final endDate = now.add(const Duration(days: 91));
+          dateRange = '${now.day}/${now.month}/${now.year} – ${endDate.day}/${endDate.month}/${endDate.year}';
         }
 
         return Container(

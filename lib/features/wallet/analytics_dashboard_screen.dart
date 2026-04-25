@@ -502,6 +502,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
               case ClaimStatus.approved: statusColor = green; break;
               case ClaimStatus.rejected: statusColor = Colors.red; break;
               case ClaimStatus.processing: statusColor = const Color(0xFF2196F3); break;
+              case ClaimStatus.flagged: statusColor = Colors.orange; break;
               default: statusColor = const Color(0xFFFF9800); break;
             }
 

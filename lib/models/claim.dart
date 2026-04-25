@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-enum ClaimStatus { pending, processing, approved, rejected }
+enum ClaimStatus { pending, processing, approved, rejected, flagged }
 
 extension ClaimStatusLabel on ClaimStatus {
   static ClaimStatus fromString(String s) {
@@ -8,6 +8,7 @@ extension ClaimStatusLabel on ClaimStatus {
       'approved' => ClaimStatus.approved,
       'rejected' => ClaimStatus.rejected,
       'processing' => ClaimStatus.processing,
+      'flagged' => ClaimStatus.flagged,
       _ => ClaimStatus.pending,
     };
   }
@@ -17,6 +18,7 @@ extension ClaimStatusLabel on ClaimStatus {
         ClaimStatus.processing => 'PROCESSING',
         ClaimStatus.approved => 'APPROVED',
         ClaimStatus.rejected => 'REJECTED',
+        ClaimStatus.flagged => 'FLAGGED',
       };
 
   bool get isSettled =>

@@ -116,17 +116,48 @@ class _ManualClaimReviewScreenState extends State<ManualClaimReviewScreen> {
       try {
         final bytes = await _images.first.readAsBytes();
         final base64Image = base64Encode(bytes);
-        
+
+        // Auto-detect MIME type: PNG magic bytes are 0x89 0x50
+        final mimeType = (bytes.length > 3 && bytes[0] == 0x89 && bytes[1] == 0x50)
+            ? 'image/png'
+            : 'image/jpeg';
+
+        // Friendly disruption labels for the AI prompt
+        const disruptionLabels = {
+          'rain_heavy': 'heavy rainfall or flooding',
+          'rain_moderate': 'rainfall or wet roads',
+          'heat_severe': 'extreme heat or heatwave conditions',
+          'heat_stress': 'high temperature conditions',
+          'platform_outage': 'delivery app or platform outage',
+          'dark_store_closure': 'closed dark store or warehouse',
+          'aqi_hazardous': 'poor air quality, smog or haze',
+          'internet_blackout': 'internet outage',
+          'bandh': 'bandh, strike or road blockade',
+        };
+        final disruptionLabel = disruptionLabels[widget.disruptionType] ?? widget.disruptionType;
+
         final geminiUrl = Uri.parse(
           'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${Secrets.geminiApiKey}',
         );
-        
+
+        final systemPrompt =
+          'You are a fraud-detection assistant for a gig-worker income protection app. '
+          'A delivery worker claims they could not work due to: "$disruptionLabel". '
+          'Decide if this photo is plausible evidence. '
+          'ACCEPT (respond VALID) for: flooded/waterlogged roads, heavy rain, storm damage, '
+          'weather-damaged vehicles, closed shops, hazy/smoky skies, road blockades, '
+          'or any real-world outdoor scene consistent with the disruption. '
+          'Indirect evidence is fine — the disruption need not be the main focus of the photo. '
+          'REJECT (respond INVALID: [reason]) ONLY for: a photo of a screen/monitor, '
+          'an unrelated indoor selfie, a completely irrelevant scene, or an obviously fake image. '
+          'Reply with exactly "VALID" or "INVALID: [specific reason]".';
+
         final geminiRes = await http.post(
           geminiUrl,
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
             'systemInstruction': {
-              'parts': [{'text': 'You are a claims validation assistant. The user claims this is a "${widget.disruptionType}". Analyze the image. If the image clearly shows real-world evidence of this disruption, respond with exactly "VALID". If the image is irrelevant, a photo of a computer screen, or fake, respond with exactly "INVALID: [State the exact reason here, e.g. This is a photo of a laptop screen]".'}]
+              'parts': [{'text': systemPrompt}]
             },
             'contents': [
               {
@@ -134,41 +165,47 @@ class _ManualClaimReviewScreenState extends State<ManualClaimReviewScreen> {
                 'parts': [
                   {
                     'inlineData': {
-                      'mimeType': 'image/jpeg',
+                      'mimeType': mimeType,
                       'data': base64Image
                     }
                   },
                   {
-                    'text': 'Here is the evidence image. Device Timestamp: ${DateTime.now().toIso8601String()}. Device GPS Location: ${sensorFeatures['gps_lat']}, ${sensorFeatures['gps_lng']}. Does this image look like valid evidence for ${widget.disruptionType}? Please cross-check if the lighting/environment in the image reasonably matches the provided timestamp.'
+                    'text': 'Disruption type: $disruptionLabel. Is this plausible real-world evidence from a delivery worker?'
                   }
                 ]
               }
             ],
             'generationConfig': {
                'temperature': 0.1,
-               'maxOutputTokens': 100,
+               'maxOutputTokens': 80,
             }
           }),
         ).timeout(const Duration(seconds: 15));
-        
+
         if (geminiRes.statusCode == 200) {
-          final json = jsonDecode(geminiRes.body);
-          final text = json['candidates']?[0]?['content']?['parts']?[0]?['text']?.toString().trim() ?? 'UNKNOWN';
-          
-          if (text.startsWith('INVALID')) {
+          final respJson = jsonDecode(geminiRes.body);
+          final text = respJson['candidates']?[0]?['content']?['parts']?[0]?['text']
+              ?.toString().trim() ?? 'UNKNOWN';
+
+          if (text.toUpperCase().startsWith('INVALID')) {
             if (!mounted) return;
             setState(() {
               _isSubmitting = false;
               _mlStatusText = '';
             });
+            final reason = text.replaceFirst(RegExp(r'^INVALID:\s*', caseSensitive: false), '');
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(text), backgroundColor: Colors.redAccent),
+              SnackBar(
+                content: Text('Evidence rejected: $reason'),
+                backgroundColor: Colors.redAccent,
+                duration: const Duration(seconds: 5),
+              ),
             );
             return; // Abort submission
           }
         }
       } catch (e) {
-        // Fallback to allowing if Gemini fails (e.g. offline)
+        // Fallback: allow submission if Gemini is unreachable (offline)
       }
     }
 

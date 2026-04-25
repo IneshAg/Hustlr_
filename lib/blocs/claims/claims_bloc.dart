@@ -26,6 +26,8 @@ class ClaimsBloc extends Bloc<ClaimsEvent, ClaimsState> {
   void Function(ClaimStatusUpdated event)? onDemoClaimReady;
 
   StreamSubscription? _profileSubscription;
+  StreamSubscription? _claimEventSubscription;
+  StreamSubscription? _walletEventSubscription;
 
   ClaimsBloc({required this.apiService, required this.supabase})
       : super(const ClaimsState()) {
@@ -36,19 +38,25 @@ class ClaimsBloc extends Bloc<ClaimsEvent, ClaimsState> {
     on<WithdrawFunds>(_onWithdrawFunds);
     on<SubmitClaimAppeal>(_onSubmitAppeal);
 
-    // Auto-refresh when persona switches
-    _profileSubscription = AppEvents.instance.onProfileUpdated.listen((_) {
-      final newUserId = StorageService.userId;
-      if (newUserId.isNotEmpty) {
-        add(LoadClaims(newUserId));
-      }
-    });
+    // Auto-refresh when persona switches or events occur
+    _profileSubscription = AppEvents.instance.onProfileUpdated.listen((_) => _reloadCurrent());
+    _claimEventSubscription = AppEvents.instance.onClaimUpdated.listen((_) => _reloadCurrent());
+    _walletEventSubscription = AppEvents.instance.onWalletUpdated.listen((_) => _reloadCurrent());
+  }
+
+  void _reloadCurrent() {
+    final newUserId = StorageService.userId;
+    if (newUserId.isNotEmpty) {
+      add(LoadClaims(newUserId));
+    }
   }
 
   @override
   Future<void> close() {
     _claimsSubscription?.cancel();
     _profileSubscription?.cancel();
+    _claimEventSubscription?.cancel();
+    _walletEventSubscription?.cancel();
     _watchedUserId = null;
     return super.close();
   }
@@ -75,7 +83,8 @@ class ClaimsBloc extends Bloc<ClaimsEvent, ClaimsState> {
       // ── DEMO OVERRIDE: Prioritize MockDataService ONLY for demo users ──
       final isDemoSession = event.userId.startsWith('DEMO_') ||
           event.userId.startsWith('demo-') ||
-          event.userId.startsWith('mock-');
+          event.userId.startsWith('mock-') ||
+          StorageService.getString('isDemoSession') == 'true';
       if (isDemoSession) {
         final mock = MockDataService.instance;
         final mockClaims = mock.claims.map((c) => Claim(
@@ -363,6 +372,7 @@ class ClaimsBloc extends Bloc<ClaimsEvent, ClaimsState> {
       case 'pending':
         return ClaimStatus.pending;
       case 'flagged':
+        return ClaimStatus.flagged;
       case 'rejected':
         return ClaimStatus.rejected;
       default:

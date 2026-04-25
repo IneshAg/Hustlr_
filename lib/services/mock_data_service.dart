@@ -357,6 +357,7 @@ class MockDataService extends ChangeNotifier {
   bool simulateHighIss = true;
   bool forceFraudFlag = false;
   String? spoofedZone;
+  String _lastTriggeredZone = '';
 
   List<ClaimModel> claims = [];
 
@@ -808,6 +809,15 @@ class MockDataService extends ChangeNotifier {
       heldAmount: (payout * 0.3).round(),
     ));
 
+    if (userId.isNotEmpty) {
+      ApiService.instance.createClaim(
+        userId: userId,
+        triggerType: 'platform_outage', // Fallback for backend
+        severity: 0.9,
+        durationHours: 3,
+      ).catchError((_) {});
+    }
+
     walletBalance += payout;
     monthlySavings += payout;
     transactions.insert(0, {
@@ -820,11 +830,26 @@ class MockDataService extends ChangeNotifier {
 
     _persistDemoState();
     notifyListeners();
+
+    onClaimApproved?.call(domain.Claim(
+      id: tempId,
+      userId: userId,
+      triggerType: 'platform_outage',
+      displayLabel: 'Compound (Platform + Rain)',
+      status: domain.ClaimStatus.approved,
+      grossPayout: payout,
+      tranche1: (payout * 0.7).round(),
+      tranche2: (payout * 0.3).round(),
+      zone: worker.zone,
+      createdAt: DateTime.now(),
+    ));
+
     AppEvents.instance.claimUpdated();
     AppEvents.instance.walletUpdated();
   }
 
   void triggerFraudAttempt() {
+    final userId = StorageService.userId;
     final tempId = 'CLM_FRAUD_${DateTime.now().millisecondsSinceEpoch}';
     final payout = 200; // Provisional credit
 
@@ -842,6 +867,15 @@ class MockDataService extends ChangeNotifier {
       heldAmount: 250,
     ));
 
+    if (userId.isNotEmpty) {
+      ApiService.instance.createClaim(
+        userId: userId,
+        triggerType: 'rain_heavy',
+        severity: 1.0,
+        durationHours: 3,
+      ).catchError((_) {});
+    }
+
     walletBalance += payout;
     transactions.insert(0, {
       'type': 'credit',
@@ -853,6 +887,20 @@ class MockDataService extends ChangeNotifier {
 
     _persistDemoState();
     notifyListeners();
+
+    onClaimApproved?.call(domain.Claim(
+      id: tempId,
+      userId: userId,
+      triggerType: 'rain_heavy',
+      displayLabel: 'Rain Disruption',
+      status: domain.ClaimStatus.flagged,
+      grossPayout: 450,
+      tranche1: 200,
+      tranche2: 250,
+      zone: worker.zone,
+      createdAt: DateTime.now(),
+    ));
+
     AppEvents.instance.claimUpdated();
     AppEvents.instance.walletUpdated();
   }
@@ -910,6 +958,20 @@ class MockDataService extends ChangeNotifier {
       icon: _triggerIcon(triggerType),
     ));
     notifyListeners();
+
+    // Fire a background API request so that this trigger also shows up in the admin panel!
+    if (userId.isNotEmpty) {
+      ApiService.instance.createClaim(
+        userId: userId,
+        triggerType: triggerType,
+        severity: severity,
+        durationHours: durationHours,
+      ).then((_) {
+        debugPrint('[MockDataService] Sent demo trigger to backend admin panel successfully');
+      }).catchError((e) {
+        debugPrint('[MockDataService] Failed to send demo trigger to backend: $e');
+      });
+    }
     
     // ALWAYS bypass real API for demo controls to ensure optimistic UI consistency.
     final payout = switch (triggerType) {
@@ -973,8 +1035,8 @@ class MockDataService extends ChangeNotifier {
       plan: _planLabel(tier),
       premium: premium,
       status: "ACTIVE",
-      coverageStart: _formatDate(DateTime.now().toIso8601String()),
-      coverageEnd: _formatDate(DateTime.now().add(const Duration(days: 91)).toIso8601String()),
+      coverageStart: DateTime.now().toIso8601String(),
+      coverageEnd: DateTime.now().add(const Duration(days: 91)).toIso8601String(),
       riders: tier == 'standard' ? ["Bandh / Curfew", "Internet Blackout"] : [],
       coverageDescription: tier == 'full'
           ? "All 9 triggers + compound disruptions covered"
@@ -1061,6 +1123,14 @@ class MockDataService extends ChangeNotifier {
     showPredictiveNudge = true;
     claims = [];
     transactions = [];
+    _lastTriggeredZone = '';
+    
+    // Reset live statuses to clear
+    liveStatuses[0] = LiveStatusModel(icon: "rain", name: "Rain", level: 0.1, statusText: "12mm/hr · Threshold 64.5mm/hr · IMD");
+    liveStatuses[1] = LiveStatusModel(icon: "heat", name: "Heat Wave", level: 0.85, statusText: "41°C · Threshold 43°C · IMD");
+    liveStatuses[2] = LiveStatusModel(icon: "downtime", name: "Platform", level: 0.05, statusText: "Operational · 99% uptime · Zepto API");
+    liveStatuses[3] = LiveStatusModel(icon: "internet", name: "Internet", level: 0.15, statusText: "45 Mbps avg · Normal · TRAI");
+    liveStatuses[4] = LiveStatusModel(icon: "strike", name: "Bandh/Strike", level: 0.0, statusText: "No alerts · NLP scraper clear");
     // Clear persisted demo state from Hive so restart also resets cleanly
     final box = _appDataBoxOrNull();
     box?.delete('demo_walletBalance');
@@ -1076,26 +1146,37 @@ class MockDataService extends ChangeNotifier {
   }
 
   void _onLocationChanged() {
+    if (worker.id.isEmpty) return;
+    
     final liveZone = LocationService.instance.currentZone;
     if (liveZone != "Unknown Zone" && liveZone != "Outside Service Area" && liveZone != worker.zone) {
       int newIss = worker.issScore;
       
+      final bool zoneChanged = _lastTriggeredZone != liveZone;
+      if (zoneChanged) _lastTriggeredZone = liveZone;
+
       // Update Risk Profile based on Zone
       if (liveZone.contains('Adyar') || liveZone.contains('Velachery')) {
         // High Rain Risk Area
         liveStatuses[0] = LiveStatusModel(icon: "rain", name: "Rain", level: 0.9, statusText: "72mm/hr · CRITICAL · IMD");
         liveStatuses[1] = LiveStatusModel(icon: "heat", name: "Heat", level: 0.2, statusText: "32°C · Moderate");
         newIss = (newIss + 15).clamp(0, 100);
+        if (zoneChanged) triggerRainDisruption();
       } else if (liveZone.contains('HSR') || liveZone.contains('Koramangala')) {
         // Platform Downtime Risk Area
         liveStatuses[2] = LiveStatusModel(icon: "app", name: "Outage", level: 0.8, statusText: "Zomato/Swiggy API Lag High");
         newIss = (newIss + 10).clamp(0, 100);
+        if (zoneChanged) triggerPlatformDowntime();
       } else if (liveZone.contains('Kattankulathur')) {
         // Kattankulathur Specific: High Temperature / Sunstroke Risk
         liveStatuses[0] = LiveStatusModel(icon: "rain", name: "Rain", level: 0.05, statusText: "Clear Skies");
         liveStatuses[1] = LiveStatusModel(icon: "heat", name: "Heat", level: 0.85, statusText: "41°C · Extreme Heat · IMD Alert");
         liveStatuses[2] = LiveStatusModel(icon: "app", name: "Outage", level: 0.1, statusText: "Networks Stable");
         newIss = (newIss + 5).clamp(0, 100);
+        if (zoneChanged) triggerExtremeHeat();
+      } else if (liveZone.contains('Indiranagar')) {
+        liveStatuses[3] = LiveStatusModel(icon: "internet", name: "Internet", level: 0.9, statusText: "Offline · TRAI Alert");
+        if (zoneChanged) triggerInternetBlackout();
       } else {
         // Clear Zone
         liveStatuses[0] = LiveStatusModel(icon: "rain", name: "Rain", level: 0.1, statusText: "Clear Skies");
@@ -1116,6 +1197,14 @@ class MockDataService extends ChangeNotifier {
     claims = [];
     transactions = [];
     activeDisruption = null;
+    _lastTriggeredZone = '';
+    
+    // Reset live statuses
+    liveStatuses[0] = LiveStatusModel(icon: "rain", name: "Rain", level: 0.1, statusText: "12mm/hr · Threshold 64.5mm/hr · IMD");
+    liveStatuses[1] = LiveStatusModel(icon: "heat", name: "Heat Wave", level: 0.85, statusText: "41°C · Threshold 43°C · IMD");
+    liveStatuses[2] = LiveStatusModel(icon: "downtime", name: "Platform", level: 0.05, statusText: "Operational · 99% uptime · Zepto API");
+    liveStatuses[3] = LiveStatusModel(icon: "internet", name: "Internet", level: 0.15, statusText: "45 Mbps avg · Normal · TRAI");
+    liveStatuses[4] = LiveStatusModel(icon: "strike", name: "Bandh/Strike", level: 0.0, statusText: "No alerts · NLP scraper clear");
     
     // Reset ML defaults
     simulateHighIss = true;
@@ -1125,19 +1214,19 @@ class MockDataService extends ChangeNotifier {
     switch (personaId) {
       case 'karthik':
         worker = WorkerModel(id: 'DEMO_KARTHIK', name: 'Karthik Shetty', platform: 'Zepto', city: 'Chennai', zone: 'Adyar', weeklyIncomeEstimate: 4200, issScore: 78);
-        activePolicy = PolicyModel(plan: 'Standard Shield', premium: 49, status: 'ACTIVE', coverageStart: _formatDate(DateTime.now().toIso8601String()), coverageEnd: _formatDate(DateTime.now().add(const Duration(days: 91)).toIso8601String()), riders: [], coverageDescription: 'Rain, heat, outage, AQI covered');
+        activePolicy = PolicyModel(plan: 'Standard Shield', premium: 49, status: 'ACTIVE', coverageStart: DateTime.now().toIso8601String(), coverageEnd: DateTime.now().add(const Duration(days: 91)).toIso8601String(), riders: [], coverageDescription: 'Rain, heat, outage, AQI covered');
         LocationService.instance.forceMockLocation('Adyar Dark Store Zone', 13.0067, 80.2206, depthScore: 0.92);
         spoofedZone = 'Adyar Dark Store Zone';
         break;
       case 'ravi':
         worker = WorkerModel(id: 'DEMO_RAVI', name: 'Ravi Kumar', platform: 'Zepto', city: 'Chennai', zone: 'Velachery', weeklyIncomeEstimate: 5500, issScore: 84);
-        activePolicy = PolicyModel(plan: 'Full Shield', premium: 79, status: 'ACTIVE', coverageStart: _formatDate(DateTime.now().toIso8601String()), coverageEnd: _formatDate(DateTime.now().add(const Duration(days: 91)).toIso8601String()), riders: [], coverageDescription: 'All perturbations + compound triggers');
+        activePolicy = PolicyModel(plan: 'Full Shield', premium: 79, status: 'ACTIVE', coverageStart: DateTime.now().toIso8601String(), coverageEnd: DateTime.now().add(const Duration(days: 91)).toIso8601String(), riders: [], coverageDescription: 'All perturbations + compound triggers');
         LocationService.instance.forceMockLocation('Velachery Dark Store Zone', 12.9815, 80.2180, depthScore: 0.88);
         spoofedZone = 'Velachery Dark Store Zone';
         break;
       case 'priya':
         worker = WorkerModel(id: 'DEMO_PRIYA', name: 'Priya Mani', platform: 'Zepto', city: 'Chennai', zone: 'T.Nagar', weeklyIncomeEstimate: 3800, issScore: 65);
-        activePolicy = PolicyModel(plan: 'Basic Shield', premium: 35, status: 'ACTIVE', coverageStart: _formatDate(DateTime.now().toIso8601String()), coverageEnd: _formatDate(DateTime.now().add(const Duration(days: 91)).toIso8601String()), riders: [], coverageDescription: 'Rain and Heat only');
+        activePolicy = PolicyModel(plan: 'Basic Shield', premium: 35, status: 'ACTIVE', coverageStart: DateTime.now().toIso8601String(), coverageEnd: DateTime.now().add(const Duration(days: 91)).toIso8601String(), riders: [], coverageDescription: 'Rain and Heat only');
         LocationService.instance.forceMockLocation('T Nagar Dark Store Zone', 13.0418, 80.2341, depthScore: 0.65);
         spoofedZone = 'T Nagar Dark Store Zone';
         break;
@@ -1150,26 +1239,37 @@ class MockDataService extends ChangeNotifier {
         break;
       case 'fraudster':
         worker = WorkerModel(id: 'DEMO_FRAUDSTER', name: 'Unknown User', platform: 'Zepto', city: 'Chennai', zone: 'Adyar', weeklyIncomeEstimate: 4000, issScore: 20);
-        activePolicy = PolicyModel(plan: 'Standard Shield', premium: 49, status: 'ACTIVE', coverageStart: _formatDate(DateTime.now().toIso8601String()), coverageEnd: _formatDate(DateTime.now().add(const Duration(days: 91)).toIso8601String()), riders: [], coverageDescription: '');
+        activePolicy = PolicyModel(plan: 'Standard Shield', premium: 49, status: 'ACTIVE', coverageStart: DateTime.now().toIso8601String(), coverageEnd: DateTime.now().add(const Duration(days: 91)).toIso8601String(), riders: [], coverageDescription: '');
         LocationService.instance.forceMockLocation('Adyar Dark Store Zone', 13.0067, 80.2206, depthScore: 0.1);
         spoofedZone = 'Adyar Dark Store Zone';
         break;
       case 'santhosh':
         worker = WorkerModel(id: 'DEMO_SANTHOSH', name: 'Santhosh', platform: 'Zepto', city: 'Chennai', zone: 'Anna Nagar', weeklyIncomeEstimate: 4500, issScore: 92);
-        activePolicy = PolicyModel(plan: 'Basic Shield', premium: 35, status: 'ACTIVE', coverageStart: _formatDate(DateTime.now().toIso8601String()), coverageEnd: _formatDate(DateTime.now().add(const Duration(days: 91)).toIso8601String()), riders: [], coverageDescription: '');
+        activePolicy = PolicyModel(plan: 'Basic Shield', premium: 35, status: 'ACTIVE', coverageStart: DateTime.now().toIso8601String(), coverageEnd: DateTime.now().add(const Duration(days: 91)).toIso8601String(), riders: [], coverageDescription: '');
         LocationService.instance.forceMockLocation('Anna Nagar Dark Store Zone', 13.0850, 80.2101, depthScore: 0.95);
         spoofedZone = 'Anna Nagar Dark Store Zone';
         break;
     }
     
-    // 3. Synchronize global StorageService so all other screens (Dashboard, Wallet) 
+    // 3. Synchronize global StorageService so all other screens (Dashboard, Wallet)
     // recognize the new persona ID as the primary user.
     if (worker.id.isNotEmpty) {
+      // Save the real userId once (only on first persona switch, not on re-switch)
+      final currentId = StorageService.userId;
+      final box = _appDataBoxOrNull();
+      
+      if (!currentId.startsWith('DEMO_') &&
+          !currentId.startsWith('demo-') &&
+          !currentId.startsWith('mock-') &&
+          currentId.isNotEmpty) {
+        await box?.put('realUserId', currentId);
+        debugPrint('[MockDataService] Saved real userId to Hive: $currentId');
+      }
+
       await StorageService.setUserId(worker.id);
       await StorageService.setLoggedIn(true);
       await StorageService.setUserZone(worker.zone);
-      
-      final box = _appDataBoxOrNull();
+
       await box?.put('isDemoSession', true);
     }
 
@@ -1215,7 +1315,7 @@ class MockDataService extends ChangeNotifier {
   }
 
   /// Clear ALL mock data and restore app to pristine state
-  void clearAllMockData() {
+  Future<void> clearAllMockData() async {
     // Reset worker state
     worker = WorkerModel(
       id: '',
@@ -1266,6 +1366,7 @@ class MockDataService extends ChangeNotifier {
     
     // Clear location override
     LocationService.instance.clearMockLocation();
+    _lastTriggeredZone = '';
     
     // Clear persisted demo state from storage
     final box = _appDataBoxOrNull();
@@ -1280,6 +1381,16 @@ class MockDataService extends ChangeNotifier {
     box?.delete('isDemoSession');
     box?.put('isDemoSession', false); // matches how login_screen / auth_service reset it
     spoofedZone = null;
+
+    // Restore the real user's ID so the dashboard hits the real API again.
+    final storedRealUserId = box?.get('realUserId') as String?;
+    if (storedRealUserId != null && storedRealUserId.isNotEmpty) {
+      debugPrint('[MockDataService] Restoring real userId: $storedRealUserId');
+      await StorageService.setUserId(storedRealUserId);
+      // Also clear any stale DEMO policyId so the real policy is fetched fresh.
+      await StorageService.setPolicyId('');
+      box?.delete('realUserId');
+    }
     shadowEvents = [
       ShadowEventModel(triggerIcon: "rain", triggerName: "Rain Disruption", date: "Oct 12, 2025", claimableAmount: 120),
       ShadowEventModel(triggerIcon: "downtime", triggerName: "Platform Downtime", date: "Oct 8, 2025", claimableAmount: 100),

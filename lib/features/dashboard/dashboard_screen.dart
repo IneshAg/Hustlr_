@@ -1335,56 +1335,90 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
         ),
         const SizedBox(width: 12),
-        Text(
-          displayUserName, // passed in
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).colorScheme.onSurface,
-            fontFamily: 'Manrope',
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      displayUserName, // passed in
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontFamily: 'Manrope',
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const ShiftStatusDot(),
+                ],
+              ),
+              const SizedBox(height: 4),
+              // Live Tracker Pill (shifted below)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: mintColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: mintColor.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.shield_rounded, size: 12, color: mintColor),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${LocationService.instance.traveledDistance.toStringAsFixed(2)} km',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: mintColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 8),
-        const ShiftStatusDot(),
-        const SizedBox(width: 8),
-        // Live Tracker Pill
-        if (LocationService.instance.traveledDistance > 0)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: mintColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: mintColor.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.shield_rounded, size: 12, color: mintColor),
-                const SizedBox(width: 4),
-                Text(
-                  '${LocationService.instance.traveledDistance.toStringAsFixed(2)} km',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: mintColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        const Spacer(),
         _buildMintIconBtn(Icons.headset_mic_rounded,
             () => context.push(AppRoutes.support), mintColor, isDark),
-        const SizedBox(width: 12),
-        IconButton(
-          icon: Icon(
-            _debugMode ? Icons.bug_report : Icons.bug_report_outlined,
-            color: _debugMode ? Colors.red : Colors.grey,
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: () => setState(() => _debugMode = !_debugMode),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _debugMode
+                  ? Colors.red.withValues(alpha: 0.12)
+                  : Colors.transparent,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: _debugMode
+                    ? Colors.red.withValues(alpha: 0.5)
+                    : Colors.grey.withValues(alpha: 0.3),
+              ),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              _debugMode ? Icons.bug_report : Icons.bug_report_outlined,
+              color: _debugMode ? Colors.red : Colors.grey,
+              size: 18,
+            ),
           ),
-          onPressed: () => setState(() => _debugMode = !_debugMode),
         ),
         const SizedBox(width: 8),
-        NotificationBell(color: mintColor),
+        SizedBox(
+          width: 40,
+          height: 40,
+          child: NotificationBell(color: mintColor),
+        ),
       ],
     );
   }

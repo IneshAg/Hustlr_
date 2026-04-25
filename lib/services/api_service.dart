@@ -408,41 +408,42 @@ class ApiService {
           await StorageService.setActiveRiders([]);
           await StorageService.instance.setPlanTier('');
           await StorageService.instance.setWeeklyPremium(0);
+        } else {
+          // ── Persist a fresh copy locally so offline / cold-start fallback works ──
+          final p = data['policy'] as Map<String, dynamic>;
+          final pId = p['id']?.toString() ?? '';
+          final pTier = (p['plan_name'] ?? p['plan_tier'])?.toString() ?? '';
+          final pPremium = (p['weekly_premium'] as num?)?.toDouble() ?? 0;
+          final pRiders = (p['riders'] as List<dynamic>? ?? [])
+              .whereType<Map>()
+              .map((r) => r['name']?.toString() ?? '')
+              .where((n) => n.isNotEmpty)
+              .toList();
+          if (pId.isNotEmpty) await StorageService.instance.savePolicyId(pId);
+          if (pTier.isNotEmpty) await StorageService.instance.setPlanTier(pTier);
+          if (pPremium > 0) await StorageService.instance.setWeeklyPremium(pPremium);
+          await StorageService.setActiveRiders(pRiders);
         }
         return data;
       }
       throw Exception(data['error'] ?? 'Failed to fetch policy');
     } catch (_) {
-      final storedUserId = StorageService.userId;
-      final effectiveUserId = userId.trim().isNotEmpty ? userId : storedUserId;
-      final isDemoUser = effectiveUserId.startsWith('DEMO_') ||
-          effectiveUserId.startsWith('demo-') ||
-          effectiveUserId.startsWith('mock-');
-
-      // Never surface a cached "active" plan for real users when backend fetch fails.
-      if (!isDemoUser) return {'policy': null};
-
+      // ── Offline / cold-start fallback — works for ALL users (real + demo) ──
+      // Real users hit this when Render cold-starts and the 15s timeout fires.
+      // We reconstruct from the locally-persisted cache written on last success.
       final savedPolicyId = StorageService.policyId;
 
       // No stored policy ID → user has never bought a plan.
-      // Return null so the dashboard shows the "No Policy" card.
       if (savedPolicyId.isEmpty) return {'policy': null};
 
-      // API is unreachable but user HAS a real stored policy — reconstruct
-      // from locally-cached values so they can still see their plan offline.
       final tier = await StorageService.instance.getPlanTier();
       final premium = await StorageService.instance.getWeeklyPremium();
       final riders = StorageService.activeRiders;
-      final resolvedTier = tier ?? 'Standard Shield';
-      final resolvedPremium = resolvedTier == 'Full Shield'
-          ? 79
-          : (resolvedTier == 'Basic Shield' ? 35 : 49);
-      final resolvedWeeklyCap = resolvedTier == 'Full Shield'
-          ? 500
-          : (resolvedTier == 'Basic Shield' ? 210 : 340);
-      final resolvedDailyCap = resolvedTier == 'Full Shield'
-          ? 250
-          : (resolvedTier == 'Basic Shield' ? 100 : 150);
+      final resolvedTier = tier?.isNotEmpty == true ? tier! : 'Standard Shield';
+      final lc = resolvedTier.toLowerCase();
+      final resolvedPremium = lc.contains('full') ? 79 : (lc.contains('basic') ? 35 : 49);
+      final resolvedWeeklyCap = lc.contains('full') ? 500 : (lc.contains('basic') ? 210 : 340);
+      final resolvedDailyCap = lc.contains('full') ? 250 : (lc.contains('basic') ? 100 : 150);
       final now = DateTime.now();
       final expiry = now.add(const Duration(days: 91));
       return {
@@ -459,7 +460,8 @@ class ApiService {
           'status': 'active',
           'created_at': now.toIso8601String(),
           'expires_at': expiry.toIso8601String(),
-        }
+        },
+        '_offline': true,
       };
     }
   }

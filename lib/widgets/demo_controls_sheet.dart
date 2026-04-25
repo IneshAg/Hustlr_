@@ -708,13 +708,24 @@ class _DemoControlsSheetState extends State<DemoControlsSheet> {
                               'Sets mock FPS to 95 - triggers immediate fraud review',
                           buttonLabel: 'INJECT',
                           buttonColor: Colors.redAccent,
-                          onTap: () {
+                          onTap: () async {
                             FraudSensorService.mockFraudSpoofing = true;
                             LocationService.instance
                                 .addEvent("Fraud score injected: FPS 95");
+                            context.read<MockDataService>().triggerFraudAttempt();
+                            
+                            NotificationService.instance.addClaimCreated(
+                              triggerType: 'Rain Disruption',
+                              amount: 450,
+                            );
+
                             setState(() {});
                             _showSuccess(
-                                "Fraud score set to 95. Claim will be auto-flagged.");
+                                "Fraud score set to 95 and claim generated. Check Claims tab.");
+                                
+                            await Future.delayed(const Duration(seconds: 2));
+                            if (!mounted) return;
+                            NotificationService.instance.addFraudAlert();
                           },
                         ),
                         const SizedBox(height: 12),
@@ -915,8 +926,19 @@ class _DemoControlsSheetState extends State<DemoControlsSheet> {
         zone: 'Velachery Dark Store Zone',
       );
 
-      _showSuccess('Compound payout â‚¹245 processing. '
-          'Check Claims tab â€” trigger shows compound rate.');
+      NotificationService.instance.addClaimCreated(
+        triggerType: 'Platform + Rain (Compound)',
+        amount: 245,
+      );
+
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+
+      NotificationService.instance.addClaimApproved(245);
+      NotificationService.instance.addWalletCredited(amount: 245);
+
+      _showSuccess('Compound payout ₹245 processing. '
+          'Check Claims tab — trigger shows compound rate.');
     } catch (e) {
       _showError('Demo error: $e');
     }
@@ -1010,6 +1032,17 @@ class _DemoControlsSheetState extends State<DemoControlsSheet> {
     // Create a claim that will be flagged
     try {
       context.read<MockDataService>().triggerFraudAttempt();
+      
+      NotificationService.instance.addClaimCreated(
+        triggerType: 'Rain Disruption',
+        amount: 450,
+      );
+
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+
+      NotificationService.instance.addFraudAlert();
+      
     } catch (e) {
       // Even if API doesn't support extra fields, show the UI
     }
